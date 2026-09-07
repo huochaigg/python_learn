@@ -12,3 +12,4 @@ uv run python lessons/v1/03_conditionals.py
 uv run python lessons/v1/04_loops.py
 uv run python lessons/v1/05_functions.py
 uv run python lessons/v1/06_containers.py
+uv run python lessons/v1/07_Comprehensive.py
