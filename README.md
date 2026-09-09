@@ -60,3 +60,38 @@ uv run python lessons/v3/08_comprehensive.py
 - 函数定义时 `*args` / `**kwargs` 是收集，函数调用时 `*data` / `**data` 是展开。
 - `lambda` 只适合简单表达式；复杂逻辑优先普通 `def`。
 - 正式项目尽量避免依赖 `global` 可变状态。
+
+# v4
+uv run python lessons/v4/01_import_basics.py
+
+uv run python lessons/v4/02_custom_module.py
+
+uv run python lessons/v4/03_package_basics.py
+
+uv run python lessons/v4/04_absolute_import.py
+
+uv run python lessons/v4/05_relative_import.py
+
+uv run python lessons/v4/06_name_main.py
+
+uv run python lessons/v4/greeter.py
+
+uv run python lessons/v4/import_greeter.py
+
+uv run python lessons/v4/07_module_side_effect.py
+
+uv run python lessons/v4/08_comprehensive.py
+
+uv run --directory lessons/v4 python -m demo_package.services.user_service
+
+## v4 注意事项
+
+- 一个 `.py` 文件可以作为 module。
+- 目录可以组织成 package。
+- `__init__.py` 可用于明确 package，并像前端 `index.ts` 那样统一导出。
+- 优先理解绝对导入：从 package 根写完整路径，正式项目通常更清晰。
+- 相对导入中的 `.` / `..` 基于 package，不完全等于磁盘上的相对路径。
+- package 内模块出现相对导入时，不要随便直接 `python xxx.py`；可以使用 `python -m package.module`。
+- `import` 会执行模块顶层代码。
+- 避免 `import` 时产生数据库写入、网络请求等副作用。
+- `if __name__ == "__main__":` 用于区分「直接运行」和「被 import」。
