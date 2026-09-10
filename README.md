@@ -182,3 +182,36 @@ uv run python lessons/v7/09_comprehensive.py
 - `super()` 用于调用父类实现；子类自己写了 `__init__` 时记得 `super().__init__()`。
 - `isinstance()` 支持继承判断，通常比 `type(x) == X` 更合适。
 - `__str__()` 控制 `print(obj)` / `str(obj)` 时的可读字符串。
+
+# v8
+uv run python lessons/v8/01_instance_class_static.py
+
+uv run python lessons/v8/02_classmethod_factory.py
+
+uv run python lessons/v8/03_staticmethod.py
+
+uv run python lessons/v8/04_property.py
+
+uv run python lessons/v8/05_property_setter.py
+
+uv run python lessons/v8/06_dataclass.py
+
+uv run python lessons/v8/07_dataclass_field.py
+
+uv run python lessons/v8/08_post_init.py
+
+uv run python lessons/v8/09_backend_scenario.py
+
+uv run python lessons/v8/10_comprehensive.py
+
+## v8 注意事项
+
+- 实例方法使用 `self`，操作「这个对象」。
+- `@classmethod` 自动获得 `cls`（当前类），常用于 `create_xxx` / `from_xxx` 工厂方法；内部优先 `cls(...)`，不要写死类名。
+- `@staticmethod` 不自动获得 `self` / `cls`，只是把和领域相关的普通函数放进类里。
+- 需要当前实例状态 → 实例方法；需要类本身或工厂 → classmethod；都不依赖 → staticmethod。不属于该类的辅助逻辑也可以是模块级函数。
+- `@property` 让方法看起来像属性：`user.full_name` 不加括号；getter 里不要藏耗时副作用。
+- setter 内部通常用 `_age` 存值；`self.age = value` 会再次进入 setter，可能无限递归。
+- `@dataclass` 自动生成 `__init__` / `__repr__` / `__eq__` 等样板；它是真正的 class，不是 TS interface。
+- 可变默认字段使用 `field(default_factory=list)`，不要 `roles: list[str] = []`。
+- `__post_init__` 在自动 `__init__` 之后做校验或补充逻辑。
