@@ -123,3 +123,31 @@ uv run python lessons/v5/08_comprehensive.py
 - 重新抛当前异常优先直接 `raise`，不要习惯性写 `raise e`。
 - 自定义业务异常能提高代码语义，避免所有失败都用 `ValueError`。
 - `raise XxxError(...) from e` 可以保留异常因果链。
+
+# v6
+uv run python lessons/v6/01_open_read.py
+
+uv run python lessons/v6/02_write_append.py
+
+uv run python lessons/v6/03_with_context.py
+
+uv run python lessons/v6/04_pathlib.py
+
+uv run python lessons/v6/05_json.py
+
+uv run python lessons/v6/06_custom_context_manager.py
+
+uv run python lessons/v6/07_backend_scenario.py
+
+uv run python lessons/v6/08_comprehensive.py
+
+## v6 注意事项
+
+- `open()` 模式：`"r"` 只读且文件必须存在；`"w"` 覆盖写入；`"a"` 追加。
+- Windows 文本文件建议显式 `encoding="utf-8"`。
+- 手动 `open()` 不要忘记 `close()`；实际项目优先使用 `with`。
+- `with` 会自动释放资源；Context Manager 的核心是 `__enter__` / `__exit__`。
+- 大文件不要轻易 `read()` 全部载入内存，优先逐行读取。
+- 路径处理优先考虑 `pathlib.Path`，并用 `Path(__file__)` 定位，不要写死绝对路径。
+- `json.dumps` / `json.loads` 面向字符串，`json.dump` / `json.load` 面向文件。
+- `ensure_ascii=False` 可保留中文；非法 JSON 读取会抛 `json.JSONDecodeError`。
