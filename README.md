@@ -151,3 +151,34 @@ uv run python lessons/v6/08_comprehensive.py
 - 路径处理优先考虑 `pathlib.Path`，并用 `Path(__file__)` 定位，不要写死绝对路径。
 - `json.dumps` / `json.loads` 面向字符串，`json.dump` / `json.load` 面向文件。
 - `ensure_ascii=False` 可保留中文；非法 JSON 读取会抛 `json.JSONDecodeError`。
+
+# v7
+uv run python lessons/v7/01_class_instance.py
+
+uv run python lessons/v7/02_init_self.py
+
+uv run python lessons/v7/03_instance_class_attributes.py
+
+uv run python lessons/v7/04_instance_methods.py
+
+uv run python lessons/v7/05_inheritance.py
+
+uv run python lessons/v7/06_super_override.py
+
+uv run python lessons/v7/07_dunder_isinstance.py
+
+uv run python lessons/v7/08_backend_scenario.py
+
+uv run python lessons/v7/09_comprehensive.py
+
+## v7 注意事项
+
+- Python 实例化不需要 `new`：写 `User()`，不是 `new User()`。
+- `__init__` 类似 JS/TS `constructor`，负责给实例填初始数据。
+- `self` 类似 JS `this`，但必须显式写在实例方法第一个参数；调用时不用手动传。
+- `self.xxx` 通常是实例属性；写在 class 里、不在 `__init__` 里的是类属性。
+- 类属性不要误用来保存每个实例独立的可变状态（共享 `list`/`dict` 会串数据）。
+- `class Child(Parent)` 表示继承，对应 JS `class Child extends Parent`。
+- `super()` 用于调用父类实现；子类自己写了 `__init__` 时记得 `super().__init__()`。
+- `isinstance()` 支持继承判断，通常比 `type(x) == X` 更合适。
+- `__str__()` 控制 `print(obj)` / `str(obj)` 时的可读字符串。

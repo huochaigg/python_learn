@@ -1,5 +1,5 @@
 {
   "app": "python-learn",
-  "debug": false,
-  "port": 8000
+  "debug": true,
+  "port": 9000
 }
