@@ -215,3 +215,74 @@ uv run python lessons/v8/10_comprehensive.py
 - `@dataclass` 自动生成 `__init__` / `__repr__` / `__eq__` 等样板；它是真正的 class，不是 TS interface。
 - 可变默认字段使用 `field(default_factory=list)`，不要 `roles: list[str] = []`。
 - `__post_init__` 在自动 `__init__` 之后做校验或补充逻辑。
+
+# v9
+uv run python lessons/v9/01_iterable.py
+
+uv run python lessons/v9/02_iterator.py
+
+uv run python lessons/v9/03_iter_next.py
+
+uv run python lessons/v9/04_custom_iterator.py
+
+uv run python lessons/v9/05_generator_basics.py
+
+uv run python lessons/v9/06_yield_state.py
+
+uv run python lessons/v9/07_generator_expression.py
+
+uv run python lessons/v9/08_yield_from.py
+
+uv run python lessons/v9/09_streaming_scenario.py
+
+uv run python lessons/v9/10_comprehensive.py
+
+## v9 注意事项
+
+- Iterable 和 Iterator 不等价：list 等是 Iterable（数据来源），Iterator 才记录消费位置。
+- `iter()` 从 Iterable 获取 Iterator；`next()` 获取下一项并推进状态。
+- 耗尽后抛 `StopIteration`；`for` 会自动处理它。`next(it, default)` 可以改成返回默认值。
+- Generator Function 调用返回 Generator Object；`yield` 会产出一个值并暂停，不是 `return` 那种结束。
+- 一个 generator object 通常只能消费一次；要重新遍历需再次调用 generator function。
+- `[]` 列表推导式立即得到完整 list；`()` Generator Expression 惰性计算。
+- 大数据 / 流式场景可利用惰性计算减少一次性内存压力；不代表所有场景都该用 Generator。
+- 后续 FastAPI `StreamingResponse` / SSE / Agent streaming 会继续使用「yield 一块、下游消费一块」这一思想。
+- 本版不学 `send` / `throw` / 协程 / async generator，避免和同步 Generator 搅在一起。
+
+# v10
+uv run python lessons/v10/01_basic_typing.py
+
+uv run python lessons/v10/02_union_optional.py
+
+uv run python lessons/v10/03_literal.py
+
+uv run python lessons/v10/04_type_alias.py
+
+uv run python lessons/v10/05_typed_dict.py
+
+uv run python lessons/v10/06_callable.py
+
+uv run python lessons/v10/07_generic_function.py
+
+uv run python lessons/v10/08_generic_class.py
+
+uv run python lessons/v10/09_annotated_any_object.py
+
+uv run python lessons/v10/10_backend_scenario.py
+
+uv run python lessons/v10/11_comprehensive.py
+
+## v10 注意事项
+
+- Python 类型标注默认不等于运行时校验；解释器通常不会因为标错类型就立刻报错。以后 Pydantic/FastAPI 才会用 annotation 做运行时验证和框架元数据，本版不提前实现。
+- 现代 Python 使用 `list[str]`、`dict[str, int]`，而不是必须 `List[str]`。
+- Python 3.10+ 推荐使用 `A | B`；`Union` / `Optional` 是历史代码里常见的旧写法。
+- `T | None` 表示允许 `None`；允许 None 不等于参数可以省略。调用时能否不传，通常还取决于有没有默认值，例如 `= None`。
+- `Literal["admin", "user"]` 类似 TS 字面量联合类型，普通 Python 不会自动运行时拦错误字符串。
+- 当前项目是 Python 3.12，类型别名优先 `type UserId = int`；`TypeAlias` 用来阅读旧项目。
+- `TypedDict` 用于描述固定结构的 dict，不要和 dataclass / 普通 class / Pydantic BaseModel 混为一谈。
+- `Callable[[int, int], int]` 描述函数签名：前面是参数类型，最后是返回值。
+- `TypeVar` / `Generic` 用来保留「输入输出还是同一个 T」这种类型关系；不要用 `Any` 偷懒替代。
+- Python 3.12 还支持 `def f[T]`、`class Box[T]` 新泛型语法，库代码里 `TypeVar`/`Generic` 仍然很常见。
+- `Any` 应谨慎使用；`object` 更像「先收窄再当具体类型用」。
+- `Annotated` 是「类型 + metadata」，后面 FastAPI 的 `Annotated[str, Query(...)]` 会重点重新学习，现在先眼熟。
