@@ -286,3 +286,37 @@ uv run python lessons/v10/11_comprehensive.py
 - Python 3.12 还支持 `def f[T]`、`class Box[T]` 新泛型语法，库代码里 `TypeVar`/`Generic` 仍然很常见。
 - `Any` 应谨慎使用；`object` 更像「先收窄再当具体类型用」。
 - `Annotated` 是「类型 + metadata」，后面 FastAPI 的 `Annotated[str, Query(...)]` 会重点重新学习，现在先眼熟。
+
+# v11
+uv run python lessons/v11/01_function_as_object_review.py
+
+uv run python lessons/v11/02_closure.py
+
+uv run python lessons/v11/03_basic_decorator.py
+
+uv run python lessons/v11/04_decorator_syntax.py
+
+uv run python lessons/v11/05_args_kwargs_return.py
+
+uv run python lessons/v11/06_wraps.py
+
+uv run python lessons/v11/07_decorator_with_args.py
+
+uv run python lessons/v11/08_multiple_decorators.py
+
+uv run python lessons/v11/09_backend_scenario.py
+
+uv run python lessons/v11/10_comprehensive.py
+
+## v11 注意事项
+
+- Decorator 本质是接收函数并返回新函数；`@decorator` 大致等价于 `func = decorator(func)`。
+- 装饰动作发生在函数定义/模块加载阶段；`wrapper` 里的逻辑发生在真正调用时，这两件事不是同一时刻。
+- `wrapper` 常用 `*args/**kwargs` 兼容不同函数签名，内部再 `func(*args, **kwargs)`。
+- 不要漏掉原函数返回值：应 `return func(...)` 或先接到 `result` 再 `return result`，否则外面拿到 `None`。
+- 正式 decorator 通常使用 `functools.wraps` 保留 `__name__` / `__doc__`；不加的话名字往往会变成 `wrapper`。
+- 带参数 decorator 会多一层配置函数：`@repeat(3)` 先执行 `repeat(3)` 得到真正的 decorator，再去接收下面的函数。
+- 多个 decorator 按嵌套组合：`@A @B` 大致等于 `A(B(func))`。靠近函数的先包进去，调用时从外层走进去。
+- 后端里 decorator 常用于日志、权限、缓存、重试、事务、耗时统计等横切逻辑。
+- Decorator、Middleware、Interceptor 作用范围不同，不要简单认为是同一个东西。
+- 本版只学同步函数 decorator，不涉及 async decorator。
