@@ -320,3 +320,50 @@ uv run python lessons/v11/10_comprehensive.py
 - 后端里 decorator 常用于日志、权限、缓存、重试、事务、耗时统计等横切逻辑。
 - Decorator、Middleware、Interceptor 作用范围不同，不要简单认为是同一个东西。
 - 本版只学同步函数 decorator，不涉及 async decorator。
+
+# v12
+uv run python lessons/v12/01_async_basics.py
+
+uv run python lessons/v12/02_coroutine.py
+
+uv run python lessons/v12/03_await_sleep.py
+
+uv run python lessons/v12/04_event_loop.py
+
+uv run python lessons/v12/05_sequential_vs_concurrent.py
+
+uv run python lessons/v12/06_create_task.py
+
+uv run python lessons/v12/07_gather.py
+
+uv run python lessons/v12/08_blocking_problem.py
+
+uv run python lessons/v12/09_exception_handling.py
+
+uv run python lessons/v12/10_backend_scenario.py
+
+uv run python lessons/v12/11_comprehensive.py
+
+## v12 注意事项
+
+- `async def` 调用返回 Coroutine Object，那不是最终结果。
+- Coroutine 通常需要 `await`，或被包装成 Task 交给 Event Loop 调度，才会真正推进。
+- `await` 会暂停当前 coroutine，把执行权交回 Event Loop，而不是把线程卡死。
+- `asyncio.run(main())` 用于普通脚本启动/清理事件循环；FastAPI 已经自己管 loop，请求里不要再随便 `asyncio.run()`。
+- `async` 不自动意味着并发。连续 `await a(); await b();` 仍然是串行。
+- `asyncio.create_task()` 把 coroutine 调度成 Task；要保存引用并 `await`，不要创建完完全不管。
+- `asyncio.gather()` 类似 `Promise.all` 的聚合场景：一起等完，结果按输入顺序返回。
+- `time.sleep()` 会阻塞当前线程，在 Event Loop 线程里会拖死其他任务；`asyncio.sleep()` 暂停当前 coroutine 并让出执行权。
+- asyncio 主要适合 HTTP / 数据库 / Redis / 网络等 IO Bound 工作，不是多核并行，也解决不了重 CPU Bound。
+- 短生命周期 asyncio Task 与 BullMQ / Celery 这类可靠任务队列不是一回事。需要持久化、失败重试、跨进程、重启后继续，应使用任务队列，而不是单纯 `create_task`。
+
+## v12 Node.js 对照
+
+这些只是概念辅助映射，实现并不等同：
+
+- `async def` ≈ `async function`
+- `await` ≈ `await`
+- `asyncio.gather()` ≈ `Promise.all`
+- Python Coroutine 与 JS Promise 不完全等价：调用 Python async function 得到 coroutine，默认不会像 Promise 那样按同一套规则自动启动执行
+- Task 可以理解为已经被 Event Loop 调度的 coroutine
+
