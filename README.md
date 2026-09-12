@@ -367,3 +367,37 @@ uv run python lessons/v12/11_comprehensive.py
 - Python Coroutine 与 JS Promise 不完全等价：调用 Python async function 得到 coroutine，默认不会像 Promise 那样按同一套规则自动启动执行
 - Task 可以理解为已经被 Event Loop 调度的 coroutine
 
+# v13
+uv run python lessons/v13/01_semaphore.py
+
+uv run python lessons/v13/02_lock.py
+
+uv run python lessons/v13/03_queue_basics.py
+
+uv run python lessons/v13/04_producer_consumer.py
+
+uv run python lessons/v13/05_timeout.py
+
+uv run python lessons/v13/06_task_cancel.py
+
+uv run python lessons/v13/07_taskgroup.py
+
+uv run python lessons/v13/08_gather_vs_taskgroup.py
+
+uv run python lessons/v13/09_backend_scenario.py
+
+uv run python lessons/v13/10_comprehensive.py
+
+## v13 注意事项
+
+- 并发工具怎么选：`gather` = 聚合多个异步任务；`Semaphore` = 限制并发数量；`Lock` = 保护共享状态；`Queue` = 生产者消费者；`timeout` = 限制等待时间；`cancel` = 请求 Task 取消；`TaskGroup` = 结构化管理一组相关 Task。
+- `Semaphore` 限当前进程内并发，不持久化任务；服务器重启、跨 Worker、重试仍要 Redis/BullMQ/Celery 等任务队列。
+- `Lock` 保护的是 coroutine 临界区，不是 `threading.Lock`。
+- 单线程 Event Loop 也不等于没有竞态：共享状态若是「读取 → await → 写入」，可能被其他 Task 插入。关键状态可用 Lock，但更优先减少共享可变状态。
+- `Queue.get()` 只表示取到任务，不等于处理完成；处理完要 `task_done()`；`join()` 等待已入队任务都被标记完成。
+- `asyncio.Queue` 是内存队列，进程重启后任务会丢失，不能替代可靠任务系统。
+- `timeout` / `wait_for` 防止无限等待；超时抛 `TimeoutError`。
+- `task.cancel()` 是协作式取消，不是强制杀进程；在 await 点以 `CancelledError` 形式送达。
+- 捕获 `CancelledError` 做清理后通常继续 `raise`，不要随便吞掉。
+- `TaskGroup` 用于结构化并发，减少孤儿 Task；`gather` 与 TaskGroup 不是简单替代关系。
+
