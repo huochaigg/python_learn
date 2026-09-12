@@ -401,3 +401,52 @@ uv run python lessons/v13/10_comprehensive.py
 - 捕获 `CancelledError` 做清理后通常继续 `raise`，不要随便吞掉。
 - `TaskGroup` 用于结构化并发，减少孤儿 Task；`gather` 与 TaskGroup 不是简单替代关系。
 
+# v14
+uv run python lessons/v14/01_async_with_basics.py
+
+uv run python lessons/v14/02_async_context_manager.py
+
+uv run python lessons/v14/03_asynccontextmanager.py
+
+uv run python lessons/v14/04_async_for_basics.py
+
+uv run python lessons/v14/05_custom_async_iterator.py
+
+uv run python lessons/v14/06_async_generator.py
+
+uv run python lessons/v14/07_anext.py
+
+uv run python lessons/v14/08_streaming_scenario.py
+
+uv run python lessons/v14/09_backend_scenario.py
+
+uv run python lessons/v14/10_comprehensive.py
+
+## v14 注意事项
+
+同步 / 异步协议对照：
+
+- `with` ↔ `async with`
+- `__enter__` / `__exit__` ↔ `__aenter__` / `__aexit__`
+- `for` ↔ `async for`
+- `__iter__` / `__next__` ↔ `__aiter__` / `__anext__`
+- `StopIteration` ↔ `StopAsyncIteration`
+- `def` + `yield` ↔ `async def` + `yield`
+
+- `async with` 用于异步资源生命周期；核心协议是 `__aenter__` / `__aexit__`。
+- `@asynccontextmanager` 可以通过 async generator 简化实现：yield 前进入，yield 出资源，yield 后清理。
+- `async for` 消费 Async Iterable；每次下一项都可能需要等待。
+- Async Iterator 使用 `__aiter__` / `__anext__`；结束时抛 `StopAsyncIteration`。
+- `async def` + `yield` 是 Async Generator Function，调用得到 Async Generator Object。
+- Async Generator 通常用 `async for` 或 `anext()` 消费，不能当成普通 coroutine 一次 `await` 完整个流。
+- 普通同步资源不会因为写成 `async with` 就自动变成异步。`open()` 文件对象没有实现异步协议，也不会获得真正的异步文件 IO。
+- 已经在内存里的 `list` 用普通 `for` 即可，不要为了「看起来异步」硬包成 Async Iterator。
+- `async with` / `async for` 必须写在 `async def` 里。
+
+## v14 后端联系
+
+- 异步数据库 Session / Transaction 常使用 `async with`。
+- 流式数据库 / API / AI 数据常使用 `async for`。
+- SSE 和 Agent Streaming 可以使用 Async Generator 持续 `yield` 数据。
+- 这些模式后续 FastAPI 阶段会重新结合真实框架学习。
+
