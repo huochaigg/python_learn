@@ -450,3 +450,51 @@ uv run python lessons/v14/10_comprehensive.py
 - SSE 和 Agent Streaming 可以使用 Async Generator 持续 `yield` 数据。
 - 这些模式后续 FastAPI 阶段会重新结合真实框架学习。
 
+# v15
+uv run python -m lessons.v15.order_app.main
+
+uv run python lessons/v15/review_notes.py
+
+uv run python lessons/v15/checklist.py
+
+## v15 项目结构
+
+本版本开始从「单文件学习」切换到「多模块后端项目结构」。入口是 `lessons/v15/order_app/`：
+
+- `models/`：数据模型（User / Order / OrderItem），用 dataclass + typing 描述业务对象。
+- `repositories/`：数据访问。本课用 dict/list 模拟存储，并提供 FakeDatabaseSession。
+- `services/`：业务规则（创建订单、库存、取消、并发详情、限流、状态流）。
+- `exceptions/`：业务异常。Repository 可以返回 None，由 Service raise 明确错误。
+- `utils/`：横切工具，例如日志 / 计时 / 权限 decorator。
+- `main.py`：组装依赖并演示整条执行链，类似 NestJS 的 bootstrap。
+
+对应 NestJS 的大致映射：DTO/Entity、Repository、Service、Exception、Utils、Bootstrap。
+
+## v15 注意事项
+
+- Repository 负责数据访问，Service 负责业务逻辑。
+- Service 可以把 `None` 转换成明确业务异常，不要每一层都返回模糊的 None。
+- constructor 注入依赖是依赖注入思想的基础；本课手动传入，不引入 DI 框架。
+- 不要在 import 阶段执行真实业务副作用。
+- `asyncio.gather` 用于独立 IO 聚合，不是多线程。
+- `Semaphore` 只限制当前进程内并发，不是可靠任务队列。
+- Async Context Manager（`__aenter__` / `__aexit__`）管理异步资源生命周期。
+- Async Generator 可用于流式数据，调用端用 `async for` 消费。
+- 内存 Repository 不是数据库；`async with` 也不会把同步对象自动变成异步。
+- `inspect.iscoroutinefunction()` 用来判断函数是不是 coroutine function，从而决定 decorator 要不要 `await`。
+- 本版本只是为 FastAPI 做过渡，不安装 FastAPI / SQLAlchemy / Redis。
+
+## v15 阶段复习重点
+
+- Python 类型标注不等于运行时校验。
+- `str | None` 表示值可能是 None，不等于参数可以省略。
+- dataclass 是 class，不是 TS interface；可变默认字段用 `field(default_factory=list)`。
+- 异常是 class；业务失败用 `BizException` 子类，按类型捕获。
+- decorator 本质是函数包装；带参 decorator 是三层结构；正式写法加 `wraps`。
+- generator 惰性产出：`def` + `yield`。`async def` + `yield` 则是 Async Generator。
+- `async` 不等于自动并发；Coroutine 与 Task 不同。
+- `gather` 聚合一组独立 IO；`Semaphore` 限同时数量；`Lock` 保护共享状态。
+- `async with` 对应 `__aenter__` / `__aexit__`；`async for` 对应 `__aiter__` / `__anext__`。
+- 分层执行链：`main -> Service -> Repository -> 模拟 IO -> Model`。
+- 出错链：`Repository 返回 None -> Service raise -> main 捕获并打印 Error Response`。
+
