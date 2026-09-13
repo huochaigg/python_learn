@@ -498,3 +498,83 @@ uv run python lessons/v15/checklist.py
 - 分层执行链：`main -> Service -> Repository -> 模拟 IO -> Model`。
 - 出错链：`Repository 返回 None -> Service raise -> main 捕获并打印 Error Response`。
 
+# v16
+首次安装（已经装过就不用再跑）：
+
+uv add "fastapi[standard]"
+
+开发启动（当前官方 CLI）：
+
+uv run fastapi dev lessons/v16/app/main.py
+
+传统 Uvicorn 启动（理解 module:app 时用）：
+
+uv run uvicorn lessons.v16.app.main:app --reload
+
+`lessons.v16.app.main:app` 的意思：
+
+- `lessons.v16.app.main`：Python 模块导入路径，对应文件 `lessons/v16/app/main.py`
+- `app`：该模块里的变量 `app = FastAPI()`
+
+访问入口（默认）：
+
+- API：http://127.0.0.1:8000
+- Swagger UI：http://127.0.0.1:8000/docs
+- ReDoc：http://127.0.0.1:8000/redoc
+- OpenAPI JSON：http://127.0.0.1:8000/openapi.json
+
+学习文件：
+
+uv run python lessons/v16/notes.py
+
+uv run python lessons/v16/checklist.py
+
+## v16 注意事项
+
+- FastAPI 根据函数签名和 type annotation 推断参数来自 Path、Query 还是 Body。
+- Path 参数名要和路由占位符一致，例如 `{user_id}` 对应 `user_id`。
+- 简单且不在 Path 里的参数，通常作为 Query。
+- 参数类型是 Pydantic `BaseModel` 时，通常作为 JSON Request Body。
+- 普通 Python annotation 不等于运行时校验；但 FastAPI/Pydantic 会读取它并校验 HTTP 请求。
+- `str | None` 只表示值可以是 None；真正「可以不传」通常还要 `= None`。
+- Pydantic V2 优先 `model_dump()`；看到旧代码 `.dict()` 能认即可。
+- `Query()` / `Path()` 给接口参数加约束；`Field()` 给 Body 模型字段加约束。
+- 开发阶段优先 `uv run fastapi dev ...`；`uvicorn module:app` 用来理解底层启动方式。
+- 路由可以用 `def` 或 `async def`。有 `await` 时再用 `async def`，不要机械全改 async。
+- 本版本不拆 APIRouter，也不上 Depends / 数据库。
+
+## v16 Swagger 测试清单
+
+打开 http://127.0.0.1:8000/docs ，建议按这个顺序点：
+
+正确请求：
+
+- `GET /`、`GET /health`
+- `GET /users/1`
+- `GET /users?page=1&limit=20`
+- `GET /users?keyword=Ada`
+- `POST /users`，Body 例如 `{"name":"Tom","age":18,"email":"tom@example.com"}`
+- `PUT /users/1?notify=true`，Body 只改部分字段
+- `DELETE /users/{id}`（可以先 POST 一个再删）
+- `GET /demo/plain-vs-fastapi`（看普通函数不会按 annotation 拦住错误类型）
+
+故意错误（重点看 422，不要只测成功）：
+
+- `GET /users/abc`：Path 无法转成 int
+- `GET /users/0`：`Path(ge=1)` 失败
+- `GET /users?limit=0` 或 `limit=999`：`Query(ge=1, le=100)` 失败
+- `GET /users?keyword=` 超长字符串：`max_length` 失败
+- `POST /users` 缺少 `name`
+- `POST /users` 把 `age` 写成完全无法转换的值
+- `POST /users` `name` 传空字符串：`Field(min_length=1)` 失败
+
+观察响应里的 `detail` 校验数组即可，本课不自定义 validation error 格式。
+
+## v16 NestJS 对照
+
+- Nest `Controller` ≈ FastAPI 把 HTTP Method + Path 注册到处理函数；V16 先全部挂在一个 `app` 上，不是同一个模块系统。
+- Nest `@Get` / `@Post` ≈ `@app.get` / `@app.post`：都是「把路由接到函数」，decorator 实现不同。
+- Nest `@Param` / `@Query` / `@Body` ≈ FastAPI 多数时候靠函数签名推断；需要额外校验时再用 `Path()` / `Query()`。
+- Nest DTO + class-validator ≈ Pydantic `BaseModel` + `Field` 的部分职责：解析、校验、序列化。
+- Nest 常靠 `@ApiProperty` 等补 Swagger；FastAPI 大量文档可以直接从 typing / Pydantic 推导，仍然不是绝对等价。
+
