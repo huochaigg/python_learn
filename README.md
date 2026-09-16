@@ -578,3 +578,75 @@ uv run python lessons/v16/checklist.py
 - Nest DTO + class-validator ≈ Pydantic `BaseModel` + `Field` 的部分职责：解析、校验、序列化。
 - Nest 常靠 `@ApiProperty` 等补 Swagger；FastAPI 大量文档可以直接从 typing / Pydantic 推导，仍然不是绝对等价。
 
+# v17
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v17/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v17.app.main:app --reload --port 8001
+
+`lessons.v17.app.main:app` 的意思：
+
+- `lessons.v17.app.main`：Python 模块导入路径，对应文件 `lessons/v17/app/main.py`
+- `app`：该模块里的变量 `app = FastAPI()`
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+- ReDoc：http://127.0.0.1:8001/redoc
+- OpenAPI JSON：http://127.0.0.1:8001/openapi.json
+
+学习文件：
+
+uv run python lessons/v17/notes.py
+
+uv run python lessons/v17/checklist.py
+
+## v17 项目结构
+
+- `main.py`：创建 `FastAPI()`，`include_router` 注册模块。应用组装，不堆 CRUD。
+- `routers/users.py`：用户 Path Operation。`APIRouter(prefix="/users", tags=["users"])`。
+- `routers/orders.py`：订单 Path Operation。独立 Router，证明接口不用堆回 main。
+- `schemas/user.py`：`UserCreate` / `UserUpdate` / `UserPut` / `UserResponse`。HTTP 输入输出结构。
+- `schemas/order.py`：`OrderCreate` / `OrderResponse`。和 users Schema 分开。
+
+一句话：main 负责组装，Router 负责接口组织，Schema 负责 HTTP 输入输出结构。
+
+## v17 注意事项
+
+- `main.py` 不要继续堆所有接口。
+- `APIRouter` 按业务拆分接口；`prefix` 自动拼接 URL；`tags` 主要用于 Swagger 分组。
+- `include_router` 在启动阶段把 Router 注册到 App，不是发请求。
+- Request Schema 和 Response Schema 要分离；不要对外返回 password。
+- `response_model` 参与输出验证、序列化和字段过滤，不只是文档。
+- 过滤能减少多余字段漏出，但不是唯一安全措施；本课不 Hash 密码。
+- PATCH 常配合 `model_dump(exclude_unset=True)`，避免没提交的字段被默认 `None` 覆盖。
+- PUT 偏向完整替换，PATCH 偏向部分修改；公司约定可能不同。
+- `status.HTTP_201_CREATED` 等是语义化常量；204 不要带 JSON Body。
+- 当前内存 dict 重启会丢失，不是真实数据层。
+
+## v17 Swagger 测试清单
+
+打开 http://127.0.0.1:8001/docs ，确认 users / orders 已经分组，然后：
+
+- `POST /users`，Body 带 `name` / `email` / `password`；状态码应是 **201**
+- 响应 JSON **没有 password**，尽管服务端内存里故意存了
+- `GET /users`：数组里每一项也没有 password；文档应是 UserResponse 列表
+- `GET /users/1`：单个 UserResponse
+- `PATCH /users/1`，Body **只提交** `{"name":"Ada2"}`；再 GET，**email 仍是原来的值**，不是 null
+- `PUT /users/1`，同时提交 `name` 和 `email`，观察完整替换公开字段
+- `DELETE /users/{id}`：应是 **204** 且没有 JSON Body（可先 POST 一个再删）
+- `POST /orders`、`GET /orders`：走另一套 Router / Schema
+- 可选：`GET /users/demo/bad-response`，观察服务端 Response Validation Error（后端违约，不是客户端填错）
+
+## v17 NestJS 对照
+
+- Nest `Controller` 与 FastAPI `APIRouter`：都在按业务组织一组 HTTP 接口，不是同一个运行时。
+- `@Controller("users")` 与 `APIRouter(prefix="/users")`：都给这组路由加前缀，拼 URL 的方式不同。
+- Module 里登记 Controller，与 `app.include_router(...)`：都是应用组装，底层完全不是一回事。
+- Request DTO / Response DTO 分开，与 Pydantic Request/Response Schema 分开：职责对应，校验库不同。
+- 明确不是底层实现完全等价。
+
