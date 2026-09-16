@@ -650,3 +650,87 @@ uv run python lessons/v17/checklist.py
 - Request DTO / Response DTO 分开，与 Pydantic Request/Response Schema 分开：职责对应，校验库不同。
 - 明确不是底层实现完全等价。
 
+# v18
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v18/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v18.app.main:app --reload --port 8001
+
+`lessons.v18.app.main:app`：前半是模块路径，最后一个 `app` 是 `main.py` 里的 FastAPI 实例。
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+- ReDoc：http://127.0.0.1:8001/redoc
+- OpenAPI JSON：http://127.0.0.1:8001/openapi.json
+
+学习文件：
+
+uv run python lessons/v18/notes.py
+
+uv run python lessons/v18/checklist.py
+
+## v18 项目结构
+
+- `main.py`：创建 App，注册 users / orders / demo Router。
+- `dependencies/common.py`：可复用分页、Class Dependency、request marker。
+- `dependencies/auth.py`：模拟 token → user → admin；以及只检查 Header 的 dependency。
+- `dependencies/resources.py`：yield 假 Session / async client。
+- `routers/users.py`、`routers/orders.py`：业务接口里复用分页；admin-only 看依赖链。
+- `routers/demo.py`：cache / class / yield / header-check 等教学接口。
+- `schemas/`：PaginationParams、CurrentUser 等演示用结构。
+
+dependency 层放「可复用的请求解析、资源获取、鉴权检查」，不要变成随便塞业务逻辑的垃圾目录。本课 Header/token 只为理解 chain，真实 Auth 后续再做。
+
+## v18 注意事项
+
+- `Depends` 接收 callable，不要写成 `Depends(get_xxx())`。
+- 推荐 `Annotated[T, Depends(get_xxx)]`；老项目 `param: T = Depends(get_xxx)` 能看懂即可。
+- Dependency 可以继续 `Depends`；FastAPI 按树在**本次请求**里解析，不是启动时执行一次。
+- class 也可以是 dependency：class 可调用，框架 new 出实例再注入。
+- yield dependency 适合资源创建/清理；用 try/finally，不要假设 endpoint 一定正常 return。
+- 默认 `use_cache=True` 是**同一 Request** 内复用，不是 Redis，不是 Nest 全局 Singleton。
+- Router/path `dependencies=[Depends(...)]`：必须执行检查，但不注入返回值。
+- 缺 Header / 校验失败走的是请求参数校验或 `HTTPException`，不是本课的全局 exception_handler。
+
+## v18 执行链
+
+鉴权链：
+
+Request → get_token → get_current_user → require_admin → endpoint
+
+资源链：
+
+Request → create session → yield session → endpoint → finally cleanup session
+
+分页链：
+
+Request Query(page/limit/keyword) → get_pagination → PaginationParams → users/orders endpoint
+
+## v18 NestJS 对照
+
+- 两边都属于依赖注入思想：调用方不自己 `new` 全部协作对象。
+- Nest 更偏 class / Provider / IoC Container，constructor injection 的 Service 往往跨请求活着。
+- FastAPI 更偏 callable + 函数参数 + 每次请求现算的 dependency graph。
+- Nest Guard 的部分「先检查再进 Controller」用途，可以用 FastAPI `dependencies=[...]` 或鉴权 dependency 近似，不是同一套机制。
+
+## v18 Swagger 测试清单
+
+打开 http://127.0.0.1:8001/docs ，同时看运行 FastAPI 的终端 print：
+
+- `GET /users`、`GET /orders`：文档里应自动出现 page/limit/keyword；试 `limit=0` 应校验失败
+- `GET /users/admin-only` 不带 `X-Token`：Header 校验失败
+- 带 `X-Token: user-token` 访问 admin-only：应被拒绝
+- 带 `X-Token: admin-token`：成功；终端顺序约是 get_token → get_current_user → require_admin → endpoint
+- `GET /demo/query`：Class Dependency，看 skip/limit
+- `GET /demo/session`：终端 session open → close
+- `GET /demo/session-error`：接口会炸，终端仍应有 session close
+- `GET /demo/async-client`：async open/close
+- `GET /demo/cache-on`：marker 相同，get_request_marker 只 print 一次
+- `GET /demo/cache-off`：两次执行，marker 不同
+- `GET /demo/need-client`、`GET /demo/header-check`：需要 `X-Client: v18-demo`
+
