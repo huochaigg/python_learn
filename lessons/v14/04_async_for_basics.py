@@ -17,7 +17,7 @@ def sync_items() -> list[str]:
 
 async def stream_items():
     for item in ["a", "b", "c"]:
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.5)
         yield item
 
 

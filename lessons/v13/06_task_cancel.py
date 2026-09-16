@@ -30,7 +30,7 @@ async def long_job() -> None:
 
 async def main() -> None:
     task = asyncio.create_task(long_job())
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.5)
     print("main 调用 task.cancel()")
     task.cancel()
     try:

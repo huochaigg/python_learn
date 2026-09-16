@@ -7,9 +7,11 @@
 
 开发启动（项目根目录）：
 uv run fastapi dev lessons/v16/app/main.py
+uv run fastapi dev lessons/v16/app/main.py --port 8001
 
 等价理解用：
 uv run uvicorn lessons.v16.app.main:app --reload
+uv run uvicorn lessons.v16.app.main:app --reload --port 8001
 """
 
 from typing import Annotated, Any

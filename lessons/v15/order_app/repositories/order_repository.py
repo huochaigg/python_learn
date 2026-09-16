@@ -2,7 +2,7 @@
 
 import asyncio
 
-from lessons.v15.order_app.models.order import Order, OrderId
+from lessons.v15.order_app.models.order import Order, OrderId, OrderItem
 from lessons.v15.order_app.repositories.session import FakeDatabaseSession
 
 
@@ -18,7 +18,7 @@ class OrderRepository:
             user_id=order.user_id,
             status=order.status,
             total_amount=order.total_amount,
-            items=list(order.items),
+            items=list[OrderItem](order.items),
         )
         self._store[saved.id] = saved
         return saved
