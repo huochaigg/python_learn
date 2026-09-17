@@ -734,3 +734,91 @@ Request Query(page/limit/keyword) → get_pagination → PaginationParams → us
 - `GET /demo/cache-off`：两次执行，marker 不同
 - `GET /demo/need-client`、`GET /demo/header-check`：需要 `X-Client: v18-demo`
 
+# v19
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v19/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v19.app.main:app --reload --port 8001
+
+`lessons.v19.app.main:app`：前半是模块路径，最后一个 `app` 是 `main.py` 里的 FastAPI 实例。
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+- ReDoc：http://127.0.0.1:8001/redoc
+- OpenAPI JSON：http://127.0.0.1:8001/openapi.json
+
+学习文件：
+
+uv run python lessons/v19/notes.py
+
+uv run python lessons/v19/checklist.py
+
+## v19 项目结构
+
+- `exceptions/`：`BizException` 及子类。只承载业务错误语义，不是 Response。
+- `services/`：内存业务。查不到 / 库存不足时 raise 业务异常，不 raise HTTPException。
+- `handlers/`：把异常转成 HTTP JSON。main 里 `register_exception_handlers(app)`。
+- `routers/`：薄接口，调用 Service 后直接返回；不要到处 try/except BizException。
+- `schemas/`：请求/响应结构；错误 body 保持简单 dict 即可。
+- `main.py`：注册 handler + router。
+
+一句话：Service 抛业务异常；Handler 转 HTTP；Router 保持薄；main 负责组装。
+
+## v19 注意事项
+
+- `HTTPException` 适合 HTTP 层错误（路由里明确的 401/404 Demo）。
+- 复杂业务更适合自定义 `BizException`；Service 不要到处直接 raise HTTPException。
+- 不要 Router 到处 `try/except`；让全局 handler 发挥作用。
+- `exception_handler` 统一映射错误；不要把 Exception 对象或 traceback 返回客户端。
+- `RequestValidationError` 与业务异常不同：前者是请求形状不对，后者是业务不允许。
+- validation 默认/本课保持 **422**；统一错误结构不代表所有错误都返回 HTTP 200。
+- 全局 Exception handler 只兜未知异常：HTTP 500 + 通用文案；详细 traceback 留在服务端日志。
+- `raise ... from e` 保留因果链给调试；客户端仍只看到业务 JSON。
+- 不要 `except Exception: return None`。未知异常不该被静默吞掉。
+- `return {"error": ...}` 通常还是 200；失败请 `raise`。
+
+## v19 错误执行链
+
+请求参数错误：
+
+Request → FastAPI/Pydantic 校验失败 → RequestValidationError → Validation Handler → **422**
+
+业务不存在：
+
+Request → Service raise UserNotFoundError → BizException Handler → **404** + `{code, message, data}`
+
+库存不足（更具体 handler）：
+
+Request → Service raise InsufficientStockError → Stock Handler → **409**（带 hint）
+
+未知错误：
+
+Request → RuntimeError → Global Exception Handler → **500**（客户端无 traceback）
+
+## v19 NestJS 对照
+
+- `throw new HttpException` ≈ FastAPI `raise HTTPException`（HTTP 层）。
+- 自定义 `BizException` 思路相似：业务语义与 HTTP 映射分开。
+- Nest `ExceptionFilter` ≈ FastAPI `exception_handler` / `add_exception_handler`。
+- `ValidationPipe` 的请求校验职责，与 FastAPI/Pydantic 在进 endpoint 前的 validation 有部分对应。
+- 机制和默认 JSON 形状并不完全一样。
+
+## v19 Swagger 测试清单
+
+打开 http://127.0.0.1:8001/docs ：
+
+- `GET /users/1`：正常用户
+- `GET /users/99`：**404**，`code=USER_NOT_FOUND`，统一 body，没有 traceback
+- `GET /orders/99`：**404** `ORDER_NOT_FOUND`
+- `POST /orders` `{"user_id":1,"sku":"sku-2","qty":99}`：**409** 库存不足（可能多 `hint`）
+- `POST /orders` `status` 填 `paid`：**400** `INVALID_ORDER_STATUS`
+- `GET /demo/validation/abc` 或 `?limit=0`：**422** `VALIDATION_ERROR` + `errors`
+- `GET /demo/unexpected-error`：**500** `INTERNAL_ERROR`；看终端日志有 traceback，响应没有
+- `GET /demo/http-exception/0`：默认 HTTPException JSON（`detail`），和 BizException body 对照
+- `GET /demo/http-exception-headers`：401，响应头带 `WWW-Authenticate` / `X-Demo-Reason`
+
