@@ -822,3 +822,103 @@ Request → RuntimeError → Global Exception Handler → **500**（客户端无
 - `GET /demo/http-exception/0`：默认 HTTPException JSON（`detail`），和 BizException body 对照
 - `GET /demo/http-exception-headers`：401，响应头带 `WWW-Authenticate` / `X-Demo-Reason`
 
+# v20
+首次安装（已经装过就不用再跑）：
+
+uv add sqlalchemy
+
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v20/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v20.app.main:app --reload --port 8001
+
+纯 SQLAlchemy Demo（不经过 FastAPI，按模块跑才能 import lessons.v20）：
+
+uv run python -m lessons.v20.sqlalchemy_demo
+
+学习文件：
+
+uv run python lessons/v20/notes.py
+
+uv run python lessons/v20/checklist.py
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+- ReDoc：http://127.0.0.1:8001/redoc
+- OpenAPI JSON：http://127.0.0.1:8001/openapi.json
+
+SQLite 文件在 `lessons/v20/data/`（`app.db` 给 FastAPI，`demo.db` 给纯脚本），不要往项目根目录丢 `.db`。
+
+## v20 项目结构
+
+- `database.py`：Engine、`sessionmaker`、`get_db()` yield Session。
+- `models/base.py`：`DeclarativeBase`。
+- `models/user.py`：`Mapped` + `mapped_column` 的 User 表。
+- `schemas/user.py`：Pydantic HTTP Schema（和 ORM 分开）。
+- `services/user_service.py`：Session 上的 CRUD。
+- `routers/users.py`：HTTP + `Depends(get_db)`。
+- `sqlalchemy_demo.py`：先脱离 FastAPI 看 ORM 生命周期。
+
+## v20 SQLAlchemy 核心关系
+
+- **Engine**：管理数据库连接基础设施（URL、方言、连接池）。不是某一条 Connection。
+- **sessionmaker / SessionLocal**：Session **工厂**。`SessionLocal()` 才创建 Session。
+- **Session**：ORM 工作单元（查询、持久化、事务、对象状态）。需要时才从 Engine 取连接。Session ≠ Connection。
+- **DeclarativeBase**：ORM Model 注册进同一套 mapping / metadata。
+- **Mapped / mapped_column**：描述 ORM 属性与列配置。
+- Session 绑定 Engine 后，CRUD 才会落到 SQLite 文件上。
+
+## v20 CRUD 执行链
+
+Create：`UserCreate` → `User()` → `session.add` → `commit`（必要时 `flush`/`refresh`）→ `UserResponse`
+
+Query 列表：`select(User)` → `execute` → `scalars` → `all()` → ORM 列表
+
+主键：`session.get(User, id)`
+
+Update：`get` → 改 ORM 属性 → `commit`
+
+Delete：`get` → `session.delete` → `commit`
+
+请求链：FastAPI → `Depends(get_db)` → Session → Service → ORM → commit/query → ORM Object → Pydantic Response
+
+## v20 注意事项
+
+- 用 SQLAlchemy **2.x** 现代写法：`DeclarativeBase`、`Mapped`、`mapped_column`、`select()`。
+- 不要优先学 `session.query(...)`（Legacy Query API）。
+- Engine ≠ Connection；Session ≠ Connection。
+- `SessionLocal` 是 factory，不是全局 Session；不要一个 Session 共享给所有请求。
+- `add` ≠ `commit`；`flush` ≠ `commit`。
+- `create_all` 不是 migration，不能当 Prisma migrate。
+- Pydantic Schema 与 ORM Model 职责分离；Response 用 `from_attributes=True`。
+- SQLite 仅用于当前学习；`check_same_thread=False` 是 SQLite 线程检查，不是万能连库参数。
+- 本课不上 Alembic、Relationship、AsyncSession、MySQL。
+
+## v20 Prisma 对照
+
+- Prisma Model ≈ SQLAlchemy ORM Model（class ↔ 表，实例 ↔ 行）。
+- Prisma Client 与 Session/Engine **只能辅助对照**：Client 更整包；SQLAlchemy 把 Engine 和 Session 拆开。
+- `findUnique({ where: { id } })` 主键场景 ≈ `session.get(User, id)`。
+- `findMany` ≈ `select(User)` + `execute` / `scalars`。
+- `create` ≈ `User(...)` + `add` + `commit`。
+- `update`：Prisma 偏 `update({ data })`；SQLAlchemy ORM 常改 Session 管理着的对象属性再 `commit`。
+
+## v20 Swagger 测试清单
+
+打开 http://127.0.0.1:8001/docs ：
+
+- `POST /users` 创建用户（带 email）
+- 再用同一个 email POST 一次：观察 unique 冲突（本课映射成 409 `EMAIL_TAKEN`）
+- `GET /users` 列表
+- `GET /users/{id}` 主键查询
+- `GET /users/99`：404 `USER_NOT_FOUND`
+- `GET /users/by-email/{email}`：`select + where + scalar_one_or_none`
+- `PATCH /users/{id}` 只改 `name`，其它字段保持
+- `DELETE /users/{id}`：204；再 GET 同一 id 应为 404
+- 停掉服务再启动：SQLite 文件还在，之前没删的用户仍能查到
+
