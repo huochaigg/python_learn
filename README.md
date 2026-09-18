@@ -922,3 +922,84 @@ Delete：`get` → `session.delete` → `commit`
 - `DELETE /users/{id}`：204；再 GET 同一 id 应为 404
 - 停掉服务再启动：SQLite 文件还在，之前没删的用户仍能查到
 
+# v21
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v21/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v21.app.main:app --reload --port 8001
+
+先写入测试用户（已有数据会跳过，不会无限插入）：
+
+uv run python -m lessons.v21.seed
+
+查询表达式 Demo（独立 `demo.db`，会 print SQL）：
+
+uv run python -m lessons.v21.query_demo
+
+学习文件：
+
+uv run python lessons/v21/notes.py
+
+uv run python lessons/v21/checklist.py
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+- ReDoc：http://127.0.0.1:8001/redoc
+- OpenAPI JSON：http://127.0.0.1:8001/openapi.json
+
+SQLite 文件在 `lessons/v21/data/`（`app.db` 给 FastAPI，`demo.db` 给 query_demo），不要复用 V20 数据文件。
+
+## v21 查询执行链
+
+Query Params → 构建 `conditions=[]` → 动态 append SQL Expression → `select(User)` → `where(*conditions)` → `order_by` → `offset` / `limit` → `execute` → `scalars` → `items`
+
+同一套 `conditions` → count query（不要带 offset/limit）→ `session.scalar` → `total` → `UserPageResponse`
+
+## v21 注意事项
+
+- SQLAlchemy Column / ORM Attribute 的 `==`、`>=` 生成 SQL Expression，不是立刻得到普通 Python bool。
+- 动态条件用列表收集，不要为每个参数组合写大量 if/else 分支。
+- bool Optional 判断使用 `is not None`；`if active:` 会把 `False` 误判成没有筛选。
+- SQL OR 使用 `or_()`，不要用 Python `or` 连接两个 Expression。
+- 排序字段必须做白名单映射（`"age": User.age`），禁止把前端字符串拼进 SQL。
+- 分页必须明确稳定 `order_by`；没有 ORDER BY 时数据库不承诺返回顺序。
+- COUNT 交给数据库（`func.count` + `scalar`），不要查出全部 ORM 再 `len()`。
+- items 和 total 必须使用一致筛选条件，否则数量对不上。
+- 不要通过 f-string 把用户输入拼进 SQL；参数走 bind parameters。
+
+## v21 分页注意事项
+
+- offset pagination 实现简单，适合普通后台 / 浅分页。
+- 深分页时 OFFSET 越大可能越慢（数据库仍要跳过前面很多行）。
+- 千万级订单等大数据场景，后续再学 cursor / keyset pagination。
+- V21 暂时只把 offset pagination 学扎实。
+
+## v21 Prisma 对照
+
+- Prisma `where` 对象 ≈ SQLAlchemy `where` expression（SQLAlchemy 更强调表达式组合，并非 API 一一对应）。
+- Prisma `orderBy` ≈ `order_by`。
+- Prisma `skip` / `take` ≈ `offset` / `limit`。
+- Prisma `count` ≈ `select(func.count(...))` + `session.scalar`。
+
+## v21 Swagger 测试清单
+
+打开 http://127.0.0.1:8001/docs ，先确认已运行 seed：
+
+- `GET /users`：无条件列表（看 page / page_size / total / total_pages）
+- `GET /users?keyword=Ada`：name 或 email 模糊匹配
+- `GET /users?active=true`
+- `GET /users?active=false`（确认停用用户能查到，没有被 `if active:` 丢掉）
+- `GET /users?min_age=20&max_age=30`：年龄区间
+- 多个条件组合：`keyword` + `active` + 年龄区间
+- 不同排序字段：`sort_by=age` / `name` / `id` / `created_at`
+- `sort_order=asc` 与 `sort_order=desc`
+- `page` / `page_size` 翻页；超过范围的 page 应得到空 `items`，但 `total` 仍对
+- 确认 `total` 与当前筛选条件下的 `items` 一致
+- `GET /users/email-exists?email=user00@example.com`：EXISTS 只返回是否存在
+- `GET /users/1`：主键拿对象
+
