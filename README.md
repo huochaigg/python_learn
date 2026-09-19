@@ -1003,3 +1003,100 @@ Query Params → 构建 `conditions=[]` → 动态 append SQL Expression → `se
 - `GET /users/email-exists?email=user00@example.com`：EXISTS 只返回是否存在
 - `GET /users/1`：主键拿对象
 
+# v22
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v22/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v22.app.main:app --reload --port 8001
+
+先写入测试订单（已有数据会跳过，不会无限插入）：
+
+uv run python -m lessons.v22.seed
+
+关系对象 / Lazy Loading Demo：
+
+uv run python -m lessons.v22.relationship_demo
+
+N+1 与 selectinload：
+
+uv run python -m lessons.v22.n_plus_one_demo
+
+三种加载策略（每段独立 Session）：
+
+uv run python -m lessons.v22.relationship_loading_demo
+
+selectinload vs joinedload，以及 join vs joinedload：
+
+uv run python -m lessons.v22.selectinload_vs_joinedload
+
+学习文件：
+
+uv run python lessons/v22/notes.py
+
+uv run python lessons/v22/checklist.py
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+- ReDoc：http://127.0.0.1:8001/redoc
+- OpenAPI JSON：http://127.0.0.1:8001/openapi.json
+
+SQLite 文件在 `lessons/v22/data/`（`app.db` 给 FastAPI，`relationship_demo.db` 给纯脚本），不要复用 V21 数据文件。
+
+## v22 核心关系
+
+- **ForeignKey** 是数据库层约束/引用：`OrderItem.order_id` 指向 `orders.id`。
+- **relationship** 是 ORM 层对象导航：`Order.items` / `OrderItem.order`。`orders` 表不会真正生成 `items` 列。
+- **Order.items** 是一对多 collection（`list[OrderItem]`）。
+- **OrderItem.order** 是多对一 scalar（单个 `Order`）。
+- **back_populates** 显式连接双向 relationship。SQLAlchemy 2.x 官方推荐这种写法，不要把 legacy `backref` 当主写法。
+
+## v22 N+1
+
+查询父对象列表后，循环访问尚未加载的 lazy relationship，可能产生 **1+N** 条 SQL（1 条订单列表 + N 条 items）。
+
+`selectinload(Order.items)` 通常再发一条 `WHERE order_id IN (...)`，把子集合批量加载回来，是一对多场景的常见解法。
+
+10 个订单的理想观察：items 相关查询从大约 11 条降到大约 2 条。具体 SQL 数量会受代码路径、Identity Map、缓存状态影响，不要写成永远保证。
+
+## v22 selectinload vs joinedload
+
+- **selectinload**：通常两阶段（父表查询 + 子表 IN 查询），不造成父行 JOIN 膨胀。
+- **joinedload**：一条 JOIN 把关系数据一起取回；一对多大集合时，父行会在 SQL Result 里重复，数据量可能膨胀。
+- 需要 `Result.unique()` 对 ORM Entity 去重。这不是 SQL `DISTINCT`。
+- 不要简单认为「一条 SQL 一定比两条 SQL 快」。按关系基数和查询场景选择。
+
+## v22 join vs joinedload
+
+- **join()**：构造查询条件 / 过滤 / 排序，例如 `select(Order).join(Order.items).where(OrderItem.sku == sku)`。
+- **joinedload()**：relationship 的 eager loading，目的是把 `order.items` 填上。
+- 二者最终 SQL 都可能出现 JOIN，**意图不同**，不能因为名字都有 join 就混为一谈。
+
+## v22 Response 注意事项
+
+- `OrderResponse` 如果包含 `items`，查询时就应该明确加载关系（本课用 `selectinload`）。
+- 不要等 Pydantic 序列化访问 `order.items` 时才意外触发大量 lazy SQL。
+- 以后 `AsyncSession` 下，隐式 lazy IO 会更需要谨慎：asyncio 场景对 lazy loading 有额外限制。
+
+## v22 Prisma 对照
+
+- Prisma relation field 与 SQLAlchemy `relationship` 在目标上类似（对象图导航）。
+- Prisma `include: { items: true }` 可以帮助理解 eager loading，但机制/API 不同。
+- SQLAlchemy 需要你更明确地选择 lazy / selectinload / joinedload。
+
+## v22 Swagger 测试清单
+
+打开 http://127.0.0.1:8001/docs ，先确认已运行 seed：
+
+- `POST /orders` 创建一笔带明细的订单（或依赖 seed 的 `ORD-000`～`ORD-009`）
+- `GET /orders/{id}`：详情包含嵌套 `items`
+- `GET /orders`：列表只有订单摘要，没有 `items`
+- `GET /orders/with-items`：列表带关系数据
+- `GET /orders/by-sku?sku=SKU-APPLE`：按 sku 过滤；`ORD-000` 有两条 Apple，结果里订单不应重复
+- `GET /orders/9999`：不存在订单，404 `ORDER_NOT_FOUND`
+- 在 Swagger Schemas 里对照嵌套的 `OrderResponse` / `OrderItemResponse`
+
