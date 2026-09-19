@@ -1100,3 +1100,99 @@ SQLite 文件在 `lessons/v22/data/`（`app.db` 给 FastAPI，`relationship_demo
 - `GET /orders/9999`：不存在订单，404 `ORDER_NOT_FOUND`
 - 在 Swagger Schemas 里对照嵌套的 `OrderResponse` / `OrderItemResponse`
 
+# v23
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v23/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v23.app.main:app --reload --port 8001
+
+初始化库存（已有数据会跳过；A001=10、B001=20、C001=5）：
+
+uv run python -m lessons.v23.seed
+
+查看库存：启动后 `GET /stocks`，或看 seed 打印。
+
+手动 commit/rollback：
+
+uv run python -m lessons.v23.transaction_demo
+
+中间乱 commit 的错误示范：
+
+uv run python -m lessons.v23.bad_transaction_demo
+
+flush 不是 commit：
+
+uv run python -m lessons.v23.flush_demo
+
+`with session.begin()`：
+
+uv run python -m lessons.v23.begin_demo
+
+flush 失败后 rollback：
+
+uv run python -m lessons.v23.rollback_after_flush_demo
+
+下单原子性（失败对照成功，会打印事务前后库存/订单）：
+
+uv run python -m lessons.v23.order_transaction_demo
+
+学习文件：
+
+uv run python lessons/v23/notes.py
+
+uv run python lessons/v23/checklist.py
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+- ReDoc：http://127.0.0.1:8001/redoc
+- OpenAPI JSON：http://127.0.0.1:8001/openapi.json
+
+SQLite 文件在 `lessons/v23/data/app.db`，不要复用 V22 数据文件。
+
+## v23 事务核心
+
+- 事务把多个数据库修改作为一个工作单元。
+- 成功 `commit`；失败 `rollback`。
+- **已经 commit 的事务不能被后续 rollback 撤销。**
+- **flush 只是把 pending changes 同步到数据库，不代表最终提交。**
+- 记住：`flush` = SQL 可能已经发出，但还没拍板；`commit` = 拍板；`rollback` = 把当前还没拍板的事务撤掉。
+
+## v23 Order Transaction
+
+`BEGIN` → 检查/扣库存过程中校验 → 创建 Order → `flush` 得到 `order.id` → 创建 OrderItems → 扣库存 → `COMMIT`
+
+任意步骤异常 → `ROLLBACK` → 不留下半完成订单，库存也不部分扣减。
+
+## v23 commit vs flush
+
+- `add`：只是加入 Session 管理，不等于已经 INSERT 成功。
+- `flush`：执行 pending SQL，但仍在事务内。
+- `commit`：会先 flush，并最终提交。
+- `rollback`：可以撤销尚未 commit 的修改。
+
+## v23 常见错误
+
+- 业务流程中间乱 `commit`（第一步留下，第二步失败撤不掉）。
+- 把 `flush` 当成 `commit`。
+- `rollback` 后吞掉异常 / `return None`。
+- 数据库错误后不 `rollback`，又继续使用失败 Session。
+- 每个小函数/Repository 自行决定 `commit`，事务无法跨操作组合。
+- 以为 `rollback` 可以撤销以前已经 `commit` 的事务。
+
+## v23 Swagger 测试清单
+
+打开 http://127.0.0.1:8001/docs ，先确认已运行 seed：
+
+- `GET /stocks`：查看初始库存（A001=10、B001=20、C001=5，若已下过单则以当前值为准）
+- `POST /orders` 创建成功订单，例如 A001×2 + C001×1
+- `GET /stocks`：对应库存减少；`GET /orders`：订单存在
+- `POST /orders` 创建库存不足订单，例如 A001×1 + B001×999
+- 确认 HTTP 业务错误 `INSUFFICIENT_STOCK`（409）
+- 再 `GET /stocks`：没有部分扣减
+- 再 `GET /orders`：失败订单没有残留
+
