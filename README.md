@@ -1196,3 +1196,121 @@ SQLite 文件在 `lessons/v23/data/app.db`，不要复用 V22 数据文件。
 - 再 `GET /stocks`：没有部分扣减
 - 再 `GET /orders`：失败订单没有残留
 
+# v24
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v24/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v24.app.main:app --reload --port 8001
+
+初始化库存：
+
+uv run python -m lessons.v24.seed
+
+Lost Update：
+
+uv run python -m lessons.v24.concurrency_problem_demo
+
+悲观锁 API（看 SQL，不把 SQLite 当行锁证据）：
+
+uv run python -m lessons.v24.pessimistic_lock_demo
+
+乐观锁 version：
+
+uv run python -m lessons.v24.optimistic_lock_demo
+
+原子 UPDATE + 多 SKU 事务：
+
+uv run python -m lessons.v24.atomic_update_demo
+
+三种方案对照：
+
+uv run python -m lessons.v24.strategy_comparison
+
+学习文件：
+
+uv run python lessons/v24/notes.py
+
+uv run python lessons/v24/checklist.py
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+
+SQLite 文件在 `lessons/v24/data/app.db`。SQLite 用来学 ORM 和事务结构，**不要把它的 locking 行为等同于生产 MySQL/PostgreSQL**。
+
+## v24 为什么事务还不够
+
+Transaction 保证**一个事务自己的**多步操作原子性（V23：下单+明细+扣库存一起成功或一起失败）。
+
+多个事务并发读取/修改同一行库存时，仍然可能 Lost Update / 超卖。这需要并发控制，不是再 commit 一次就能解决。
+
+## v24 悲观锁
+
+`SELECT ... FOR UPDATE` 在支持的数据库上锁定选中记录，直到事务结束。
+
+适合冲突较高、锁内还要做复杂业务判断的临界区。缺点是等待、降低并发，以后还会碰到死锁。
+
+`with_for_update()` 生成这句 SQL。锁的是数据库行，不是 Python Lock。
+
+SQLite 不作为真实行锁实验依据。本课只学 API 和流程，等 MySQL/PostgreSQL 再做真实等待实验。
+
+事务必须短：不要持锁调用外部支付，也不要把 `sleep(10)` 当正常写法。
+
+## v24 乐观锁
+
+读 `version=N`；更新时要求数据库仍然 `version=N`；成功后版本增加。别人已改过则 stale conflict。
+
+SQLAlchemy `version_id_col` 可以为 **ORM flush 的 UPDATE/DELETE** 提供这套检查。
+
+限制：直接 bulk `update()` / `delete()` **不会**自动获得同一套 version 检查。
+
+冲突时先 `rollback`，再变成 `ConcurrencyConflictError` 抛出去，不要吞异常。
+
+## v24 原子库存扣减
+
+核心不是 `SELECT → if → UPDATE`，而是：
+
+`UPDATE stock SET quantity = quantity - need WHERE sku=? AND quantity >= need`
+
+然后检查 `rowcount`：1=成功，0=没有满足条件的行（SKU 不存在和库存不足是不同业务语义，本课在 0 时再查一次加以区分）。
+
+多 SKU 放在一个 Transaction 中，任意一个失败则全部 rollback（V24 原子 UPDATE + V23 事务）。
+
+## v24 三种方案怎么选
+
+- 复杂、高冲突、锁内判断多：可以考虑悲观锁。
+- 低冲突、编辑类、允许重试/失败：可以考虑乐观锁。
+- 简单库存/余额/计数器：优先看条件原子 UPDATE 是否足够。
+
+不写绝对性能排名，也不写「谁永远最好」。
+
+## v24 常见错误
+
+- 先 SELECT 库存再普通 UPDATE，以为包在事务里就一定不会超卖。
+- 长时间持有 FOR UPDATE 锁（外部 IO / sleep）。
+- 把 SQLite Demo 当成生产行锁行为。
+- 加了 version 字段，却没有把它放进 UPDATE 条件（或没用 `version_id_col`）。
+- bulk UPDATE 误以为自动走 `version_id_col`。
+- 原子 UPDATE 后忘记 Transaction，多 SKU 会部分扣减。
+- 看到高并发就直接上 Redis 分布式锁。
+
+## v24 Swagger 测试清单
+
+打开 http://127.0.0.1:8001/docs ，先 seed：
+
+- `GET /stocks` 查看库存
+- `POST /stocks/{sku}/atomic-deduct` 成功扣减
+- 再扣到不够：`INSUFFICIENT_STOCK`
+- `POST /orders/atomic` 三 SKU 都够：订单成功，库存都减少
+- `POST /orders/atomic` 中途 C001 不够：业务错误；再 GET stocks，前面 A/B 的扣减全部 rollback
+- 乐观锁主要跑 `optimistic_lock_demo`
+- `POST /stocks/{sku}/pessimistic-deduct` 只观察 API；FOR UPDATE 等后续 MySQL/PostgreSQL 再做真实并发等待
+
+## v24 后续学习
+
+本课不讲：Transaction Isolation、MVCC 细节、死锁检测/重试、SAVEPOINT、Redis/Lua/Redlock、消息队列、分布式事务。这些以后单独学。
+

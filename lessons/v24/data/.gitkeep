@@ -1,0 +1,1 @@
+# keep the v24 sqlite directory in git; *.db files are gitignored
