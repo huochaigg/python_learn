@@ -1314,3 +1314,114 @@ SQLAlchemy `version_id_col` 可以为 **ORM flush 的 UPDATE/DELETE** 提供这�
 
 本课不讲：Transaction Isolation、MVCC 细节、死锁检测/重试、SAVEPOINT、Redis/Lua/Redlock、消息队列、分布式事务。这些以后单独学。
 
+# v25
+开发启动（端口统一 8001）：
+
+uv run fastapi dev lessons/v25/app/main.py --port 8001
+
+传统 Uvicorn 启动：
+
+uv run uvicorn lessons.v25.app.main:app --reload --port 8001
+
+数据库四类约束：
+
+uv run python -m lessons.v25.constraints_demo
+
+IntegrityError 与 rollback：
+
+uv run python -m lessons.v25.integrity_error_demo
+
+先查挡不住并发：
+
+uv run python -m lessons.v25.race_unique_demo
+
+Idempotency-Key：
+
+uv run python -m lessons.v25.idempotency_demo
+
+三层校验对照：
+
+uv run python -m lessons.v25.constraint_vs_validation_demo
+
+概念定位：
+
+uv run python lessons/v25/concept_index.py
+
+学习文件：
+
+uv run python lessons/v25/notes.py
+
+uv run python lessons/v25/checklist.py
+
+访问入口：
+
+- API：http://127.0.0.1:8001
+- Swagger UI：http://127.0.0.1:8001/docs
+
+SQLite 文件在 `lessons/v25/data/app.db`。
+
+## v25 Demo 文件说明
+
+- `constraints_demo.py`：看数据库四类约束（UNIQUE / NOT NULL / CHECK / ForeignKey）。
+- `integrity_error_demo.py`：看约束失败后的 Session / rollback；另有「忘记 rollback」错误函数。
+- `race_unique_demo.py`：两个 Session 都先查 email 不存在，最终只有一个 INSERT 成功。
+- `idempotency_demo.py`：看 Idempotency-Key 防重复副作用。
+- `constraint_vs_validation_demo.py`：Pydantic / Service / 数据库约束三层对照。
+- `concept_index.py`：概念落到哪个文件、哪个函数。
+
+## v25 概念定位
+
+- UNIQUE → `constraints_demo.py` / `demo_unique()`
+- NOT NULL → `constraints_demo.py` / `demo_not_null()`
+- CHECK → `constraints_demo.py` / `demo_check_constraint()`
+- ForeignKey 完整性 → `constraints_demo.py` / `demo_foreign_key()`
+- IntegrityError → `integrity_error_demo.py` / `demo_integrity_error_flow()`
+- 幂等 Key → `idempotency_demo.py` / `create_order_idempotent()`
+- 先查不是并发保证 → `race_unique_demo.py` / `main()`
+- 三层校验 → `constraint_vs_validation_demo.py` / `demo_three_layers()`
+
+## v25 三层校验
+
+- **Pydantic / FastAPI validation**：请求结构（类型、必填、长度）。
+- **Service validation**：业务规则（email 已存在则友好错误）。
+- **Database Constraint**：最终数据完整性（UNIQUE / NOT NULL / CHECK / FK）。
+
+应用层判断是提前发现，数据库约束是最终兜底。不要混成一层。
+
+## v25 UNIQUE 与并发
+
+先查 email / Idempotency-Key 是否存在，只能改善用户体验，**不能消除并发竞争**。
+
+两个请求都可能同时查到「不存在」。最终必须依靠数据库 UNIQUE（或其他并发机制）兜底。
+
+## v25 IntegrityError 执行链
+
+`INSERT/UPDATE` → 数据库约束失败 → `IntegrityError` → `rollback` → 转业务异常（如 `DuplicateEmailError`）→ V19 Exception Handler → HTTP JSON。
+
+不要把数据库内部错误字符串直接返回前端。
+
+## v25 幂等执行链
+
+Request + `Idempotency-Key` → 查询是否已处理 → 已处理则返回已有结果；未处理则创建 → UNIQUE 兜底并发 → 重复冲突时重新读取已有结果。
+
+幂等不是禁止重复请求，而是同一个业务请求重复执行时不要产生重复副作用。服务端不要随机生成 key。
+
+## v25 常见错误
+
+- 只做 Service 查询，不建 UNIQUE。
+- 捕获 IntegrityError 后不 rollback。
+- 把数据库内部错误字符串直接返回前端。
+- 把 Pydantic validation 当数据库约束。
+- 每次重试都生成新的 Idempotency-Key。
+- 认为 POST 天然幂等。
+
+## v25 Swagger 测试清单
+
+- `POST /users` 创建用户；再用同一 email POST：409 `DUPLICATE_EMAIL`
+- `POST /orders` 必须带 Header `Idempotency-Key`；缺了看 422
+- 同一 Key、同一 body 再 POST 一次：还是同一条订单；`GET /orders` 只有一条
+- 换一个 Key 再 POST：可以创建第二单
+- `GET /orders/by-key/{idempotency_key}` 按 key 找回
+
+本课不讲：MySQL/PostgreSQL error code、Deferrable Constraint、复合 UNIQUE、Upsert / ON CONFLICT、分布式幂等、Redis 幂等锁。
+
