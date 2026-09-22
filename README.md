@@ -1834,3 +1834,14 @@ Async ORM 更要避免隐式 lazy IO。需要关系字段时优先 `selectinload
 - 使用 relationship lazy loading 导致隐式 IO
 - 每请求 `dispose` Engine
 
+# v29
+V28 之上接入 OpenAI Agents SDK。详细说明见 `lessons/v29/README.md`。
+
+推荐先跑：
+
+uv run python lessons/v29/01_agent_basic_demo.py
+
+FastAPI：
+
+uv run fastapi dev lessons/v29/app/main.py --port 8001
+

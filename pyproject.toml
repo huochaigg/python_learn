@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "asyncmy>=0.2.15",
     "fastapi[standard]>=0.141.1",
+    "openai-agents>=0.22.3",
     "pymysql>=1.2.3",
     "requests>=2.34.2",
     "sqlalchemy>=2.0.54",
