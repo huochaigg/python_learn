@@ -1566,3 +1566,130 @@ Dirty Read / Non-repeatable Read / Phantom / MVCC 中部分文件属于「可执
 
 本课不讲：InnoDB undo log、read view、PostgreSQL xmin/xmax、gap/next-key lock、Predicate Lock、SSI、死锁图算法、自动重试 backoff。
 
+# v27
+本版第一次从 SQLite 切换到真实 MySQL。重点是：
+
+`.env → BaseSettings → Settings → URL.create → create_engine`
+
+以及：
+
+`FastAPI Request → get_db → Session → Engine → Connection Pool → MySQL Connection → MySQL Server`，结束后 `Session.close` → Connection 回到 Pool。
+
+依赖：
+
+```
+uv add pymysql pydantic-settings
+```
+
+本仓库已执行 `uv add pymysql`。`pydantic-settings` 已随 FastAPI 存在，未重复安装。不要加入 asyncmy / aiomysql（留给 V28）。
+
+先复制环境变量模板并填写自己的账号（不要把真实密码写进 README 或提交 Git）：
+
+```
+copy lessons\v27\.env.example lessons\v27\.env
+```
+
+初始化表：
+
+uv run python lessons/v27/init_db.py
+
+连接与连接池：
+
+uv run python lessons/v27/01_mysql_connection_demo.py
+
+uv run python lessons/v27/02_connection_pool_demo.py
+
+uv run python lessons/v27/03_session_lifecycle_demo.py
+
+uv run python lessons/v27/04_db_health_demo.py
+
+概念定位 / 笔记：
+
+uv run python lessons/v27/concept_index.py
+
+uv run python lessons/v27/notes.py
+
+uv run python lessons/v27/checklist.py
+
+FastAPI：
+
+uv run fastapi dev lessons/v27/app/main.py --port 8001
+
+等价 Uvicorn：
+
+uv run uvicorn lessons.v27.app.main:app --reload --port 8001
+
+## v27 MySQL 前置准备
+
+需要本机已有可访问的 MySQL 8.x（或兼容 MySQL Server）。本课不会自动安装或启动 Docker MySQL。
+
+先创建数据库（不要 DROP 已有库）：
+
+```sql
+CREATE DATABASE python_learn_v27 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+如果 `.env` 配错或 MySQL 没开，程序会指出是 driver 未安装、host/port 不通、access denied 还是 database 不存在，不会退回 SQLite。
+
+## v27 .env 配置
+
+- `lessons/v27/.env.example` 可以提交，里面是占位符 `your_password`。
+- 真实 `lessons/v27/.env` 由本地填写，已被 `.gitignore` 忽略，不要提交。
+- 不要把真实密码写进 README、代码或 Git。
+- 不要在日志或 `/health/db` 里返回完整 DATABASE_URL / username / password。
+
+## v27 Demo 学习顺序
+
+1. `01_mysql_connection_demo.py`：先确认四者连通。
+2. `02_connection_pool_demo.py`：观察 checkout / return。
+3. `03_session_lifecycle_demo.py`：观察 Session 生命周期。
+4. `04_db_health_demo.py`：观察 SELECT 1 健康检查。
+5. 启动 FastAPI app（先跑 `init_db.py` 建表）。
+6. 打开 Swagger 测试真实 User CRUD：`POST /users`、`GET /users`、`GET /users/{id}`。
+
+## v27 Demo 文件说明
+
+- `01_mysql_connection_demo.py`：确认 SQLAlchemy / PyMySQL / `.env` / MySQL Server 真能连上，并读出版本和当前库名。
+- `02_connection_pool_demo.py`：用真实 Engine Pool checkout 多条 Connection，打印 `CONNECTION_ID()` 和 `pool.status()`。
+- `03_session_lifecycle_demo.py`：创建两个不同 Session，证明 Session 不是 Connection，close 只结束 Session。
+- `04_db_health_demo.py`：调用与 `/health/db` 相同的 `check_db_health()`，真实执行 `SELECT 1`。
+- `init_db.py`：学习用 `create_all` 建 `users` 表，不是 Alembic Migration。
+
+## v27 概念定位
+
+- 真实 MySQL 连接 → `01_mysql_connection_demo.py` → `demo_mysql_connection()`
+- Connection Pool → `02_connection_pool_demo.py` → `demo_connection_pool()`
+- pool_size/max_overflow → `app/database.py` → `create_engine`
+- pool_pre_ping → `app/database.py`
+- pool_recycle → `app/database.py`
+- Session 生命周期 → `03_session_lifecycle_demo.py` → `demo_session_lifecycle()`
+- DB Health → `04_db_health_demo.py` + `app/routers/health.py` → `demo_db_health()` / `check_db_health()`
+- Settings/.env → `app/config.py` → `Settings`
+
+## v27 Engine / Pool / Session 执行链
+
+应用启动 → 创建 Engine → Engine 管理 Pool。
+
+HTTP Request → `Depends(get_db)` → Session → 从 Engine/Pool 获取 Connection → SQL → `Session.close()` → Connection 回 Pool。
+
+`Session.close()` 通常不等于永久关闭底层 MySQL TCP connection。
+
+## v27 连接池参数
+
+当前数字只是学习配置，不是生产推荐值。真实值要看数据库 `max_connections`、应用 worker 数量和负载测试。
+
+- `pool_size`：池里长期维持的基础连接数。不是 FastAPI 能同时处理的 HTTP 上限。
+- `max_overflow`：基础连接都被占用时，还能临时再开多少条。不是数据库最大连接数。
+- `pool_timeout`：池里暂时没连接时，最多等多少秒。超时常见 QueuePool timeout。
+- `pool_pre_ping`：checkout 时先确认连接还活着，处理 stale connection。不是每条 SQL 都 ping。
+- `pool_recycle`：连接太老则下次取出时重建，应对 MySQL 长连接超时。不是每 N 秒重启整个池。
+
+如果以后 FastAPI 启动多个 worker，每个进程通常各自拥有自己的 Engine/Pool。总数据库连接潜力会随 worker 数增加，不要以为 `pool_size=5` 就是整个系统永远只有 5 个连接。
+
+## v27 安全注意事项
+
+- 不要 hard-code DB password。
+- 不要把完整 DATABASE_URL 打进日志。
+- 不要提交 `.env`。
+- 健康检查不要返回敏感连接配置。
+
