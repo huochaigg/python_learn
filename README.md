@@ -1693,3 +1693,144 @@ HTTP Request → `Depends(get_db)` → Session → 从 Engine/Pool 获取 Connec
 - 不要提交 `.env`。
 - 健康检查不要返回敏感连接配置。
 
+# v28
+本版是「真实 MySQL 同步 SQLAlchemy → Async SQLAlchemy」的升级。继续连同一台 MySQL Server，但使用独立库 `python_learn_v28`，避免覆盖 V27 数据。不 fallback 到 SQLite，也不改回 PyMySQL。
+
+目标执行链：
+
+`async def endpoint → Depends(get_db) → AsyncSession → await execute/commit → AsyncEngine → asyncmy → MySQL`
+
+依赖：
+
+```
+uv add asyncmy
+```
+
+已执行 `uv add asyncmy`。`greenlet` 已随 SQLAlchemy 存在，未重复安装。V27 的 `pymysql` 保留。
+
+先复制环境变量模板并填写自己的账号（不要把真实密码写进 README 或提交 Git）：
+
+```
+copy lessons\v28\.env.example lessons\v28\.env
+```
+
+初始化表：
+
+uv run python lessons/v28/init_db.py
+
+AsyncEngine 连接：
+
+uv run python lessons/v28/01_async_connection_demo.py
+
+uv run python lessons/v28/02_async_session_demo.py
+
+uv run python lessons/v28/03_async_transaction_demo.py
+
+uv run python lessons/v28/04_async_relationship_demo.py
+
+概念定位 / 笔记：
+
+uv run python lessons/v28/concept_index.py
+
+uv run python lessons/v28/notes.py
+
+uv run python lessons/v28/checklist.py
+
+FastAPI：
+
+uv run fastapi dev lessons/v28/app/main.py --port 8001
+
+等价 Uvicorn：
+
+uv run uvicorn lessons.v28.app.main:app --reload --port 8001
+
+## v28 MySQL 前置准备
+
+需要本机已有可访问的 MySQL 8.x。本课不会自动安装 Docker。先建独立库（不要 DROP 已有库）：
+
+```sql
+CREATE DATABASE python_learn_v28 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+`.env.example` 可以提交；真实 `.env` 不提交。健康检查不要返回 URL / password。
+
+## v28 同步/异步 API 对照
+
+| 同步 | 异步 |
+| --- | --- |
+| `create_engine` | `create_async_engine` |
+| `sessionmaker` | `async_sessionmaker` |
+| `Session` | `AsyncSession` |
+| `with session` | `async with session` |
+| `session.execute` | `await session.execute` |
+| `session.commit` | `await session.commit` |
+| `session.get` | `await session.get` |
+| `session.flush` | `await session.flush` |
+| `session.rollback` | `await session.rollback` |
+
+`select()` / `where()` / `order_by()` 仍然只是构造 Statement，不 await。
+
+## v28 Demo 学习顺序
+
+1. `01_async_connection_demo.py`
+2. `02_async_session_demo.py`
+3. `03_async_transaction_demo.py`
+4. `04_async_relationship_demo.py`
+5. `init_db.py`
+6. FastAPI app + Swagger
+
+`02` 以后若提示表不存在，先跑 `init_db.py`。
+
+## v28 Demo 文件说明
+
+- `01_async_connection_demo.py`：确认 asyncmy + AsyncEngine + MySQL 真能连上，并用 await 读版本和当前库。
+- `02_async_session_demo.py`：用 AsyncSession 查 users；两个独立 Session 再 `gather`，演示 Session per Task。
+- `03_async_transaction_demo.py`：成功事务能看到新订单；失败事务 rollback 后数据不留下。
+- `04_async_relationship_demo.py`：`selectinload(Order.items)` 后打印 order_no 和 sku 列表。
+- `init_db.py`：`run_sync(Base.metadata.create_all)` 在 MySQL 建表，不是 Alembic。
+
+## v28 概念定位
+
+- AsyncEngine → `app/database.py` → `create_async_engine`
+- asyncmy Driver → `app/config.py` → `database_url`
+- async_sessionmaker → `app/database.py` → `async_sessionmaker`
+- AsyncSession → `app/database.py` / `02_async_session_demo.py` → `demo_async_session`
+- expire_on_commit=False → `app/database.py` → `AsyncSessionLocal`
+- async get_db → `app/database.py` → `get_db`
+- await execute → `app/services/*` + `02_async_session_demo.py` → `demo_async_session`
+- async transaction → `03_async_transaction_demo.py` → `demo_async_transaction`
+- run_sync(create_all) → `init_db.py` → `main`
+- async relationship/selectinload → `04_async_relationship_demo.py` → `demo_async_relationship`
+- AsyncSession per Task → `notes.py` + `02_async_session_demo.py` → `demo_async_session`
+
+## v28 AsyncSession 生命周期
+
+Request → `Depends(get_db)` → AsyncSession → AsyncEngine → Pool → asyncmy → MySQL。
+
+Request 结束 → AsyncSession close → Connection 回 Pool。
+
+## v28 await 判断原则
+
+构造 SQL Expression 不 await；会真正产生数据库 IO 的 AsyncSession / AsyncConnection coroutine 需要 await。
+
+- 不 await：`select()`、`where()`、`order_by()`、`options()`、`session.add()`
+- 要 await：`execute()`、`commit()`、`flush()`、`refresh()`、`rollback()`、`get()`、`delete()`
+
+## v28 并发注意事项
+
+AsyncSession 是有状态 transaction object，不能在多个 asyncio Task 中并发共享。需要并发 DB Task 时通常 Session per task，但这会改变事务边界和连接占用，需要谨慎。
+
+## v28 Relationship 注意事项
+
+Async ORM 更要避免隐式 lazy IO。需要关系字段时优先 `selectinload` 等 eager loading。不要等 Pydantic Response 序列化时才触发数据库查询。
+
+## v28 常见错误
+
+- 只把 endpoint 改 async，但还用 PyMySQL 同步 Driver
+- 每请求 `create_async_engine`
+- 给 `select()` 加 await
+- 忘记 await `execute` / `commit` / `rollback`
+- 多个 gather Task 共用一个 AsyncSession
+- 使用 relationship lazy loading 导致隐式 IO
+- 每请求 `dispose` Engine
+
