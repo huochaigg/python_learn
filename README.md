@@ -1425,3 +1425,144 @@ Request + `Idempotency-Key` → 查询是否已处理 → 已处理则返回已�
 
 本课不讲：MySQL/PostgreSQL error code、Deferrable Constraint、复合 UNIQUE、Upsert / ON CONFLICT、分布式幂等、Redis 幂等锁。
 
+# v26
+本版重点是事务隔离 / MVCC / 死锁。保留最小 FastAPI + SQLAlchemy 环境，用来证明 SQLite 里真有表和数据；隔离现象本身用可执行概念模型演示。
+
+先初始化数据库：
+
+uv run python lessons/v26/seed.py
+
+FastAPI：
+
+uv run fastapi dev lessons/v26/app/main.py --port 8001
+
+等价 Uvicorn：
+
+uv run uvicorn lessons.v26.app.main:app --reload --port 8001
+
+隔离级别总览：
+
+uv run python lessons/v26/isolation_overview_demo.py
+
+脏读时间线：
+
+uv run python lessons/v26/dirty_read_demo.py
+
+不可重复读：
+
+uv run python lessons/v26/non_repeatable_read_demo.py
+
+幻读：
+
+uv run python lessons/v26/phantom_read_demo.py
+
+MVCC 快照思想：
+
+uv run python lessons/v26/mvcc_demo.py
+
+SQLAlchemy isolation_level API：
+
+uv run python lessons/v26/isolation_level_demo.py
+
+死锁循环等待：
+
+uv run python lessons/v26/deadlock_demo.py
+
+V23/V24/V26 对照时间线：
+
+uv run python lessons/v26/transaction_timeline_demo.py
+
+概念定位：
+
+uv run python lessons/v26/concept_index.py
+
+学习文件：
+
+uv run python lessons/v26/notes.py
+
+uv run python lessons/v26/checklist.py
+
+## v26 Demo 文件说明
+
+- `seed.py`：创建 `lessons/v26/data/v26.db` 的 `accounts` 表，幂等插入 A=100、B=200、C=50，再用 `select(Account)` 打印实际行。
+- `isolation_overview_demo.py`：用 `ISOLATION_MATRIX` 对照四级隔离是否允许 dirty / non-repeatable / phantom，并 assert 标准意图。
+- `dirty_read_demo.py`：SharedStore 同时维护 `committed_value` / `uncommitted_value`；A 写未提交 50，B 读到 50，A rollback 后 committed 仍 100。
+- `non_repeatable_read_demo.py`：RC 模型两次读 100→50；snapshot 模型两次都是 100。
+- `phantom_read_demo.py`：对用户列表 `age>=18` 做 filter；RC 下 2→3，snapshot 仍 2。
+- `mvcc_demo.py`：运行简化版本可见性模型，通过 `snapshot_id` 选择可见 `RowVersion`；A 看见 10，C 看见 9。
+- `isolation_level_demo.py`：真实调用 SQLAlchemy `Connection.get_isolation_level()` 和 `execution_options(isolation_level=...)`；SQLite 不支持的级别走 except。
+- `deadlock_demo.py`：用 `threading.Lock` + `acquire(timeout=...)` 模拟 circular wait；再按 lock_a→lock_b 对照 consistent lock order。
+- `transaction_timeline_demo.py`：用 Ledger/committed/snapshot 状态对象分别跑 V23 rollback、V24 Lost Update、V26 可见性。
+- `concept_index.py`：打印概念 → 文件 → 函数，并 `getattr` 校验函数真实存在。
+
+## v26 数据库验证
+
+- seed 命令：`uv run python lessons/v26/seed.py`
+- 数据库文件位置：`lessons/v26/data/v26.db`（由 `Path(__file__)` 推导，不依赖 cwd）
+- 如何确认表已创建：seed 会 `init_db()` → import `Account` 后再 `Base.metadata.create_all`；成功后打印 `tables = ['accounts']`
+- 如何确认数据已插入：seed 用 SQLAlchemy `select(Account)` 打印 A/B/C 三行；重复运行不会再插入
+- 如何通过 FastAPI 查到数据：启动后访问 `GET /health`、`GET /accounts` 或 `GET /demo/data`
+
+## v26 概念定位
+
+- Isolation Level → `isolation_overview_demo.py` → `demo_isolation_matrix()`
+- Dirty Read → `dirty_read_demo.py` → `demo_dirty_read()`
+- Non-repeatable Read → `non_repeatable_read_demo.py` → `demo_read_committed_non_repeatable_read()` / `demo_repeatable_snapshot()`
+- Phantom Read → `phantom_read_demo.py` → `demo_phantom_read()`
+- MVCC → `mvcc_demo.py` → `demo_mvcc_snapshot_visibility()`
+- Deadlock → `deadlock_demo.py` → `demo_circular_wait()`
+- consistent lock order → `deadlock_demo.py` → `demo_consistent_lock_order()`
+- SQLAlchemy isolation_level API → `isolation_level_demo.py` → `demo_get_and_change_isolation_level()`
+- V23 原子性 → `transaction_timeline_demo.py` → `demo_v23_atomicity()`
+- V24 Lost Update → `transaction_timeline_demo.py` → `demo_v24_lost_update()`
+- V26 可见性 → `transaction_timeline_demo.py` → `demo_v26_visibility()`
+
+## v26 四种隔离级别
+
+| 级别 | 脏读 | 不可重复读 | 幻读（标准意图） |
+| --- | --- | --- | --- |
+| READ UNCOMMITTED | 可能 | 可能 | 可能 |
+| READ COMMITTED | 挡 | 可能 | 可能 |
+| REPEATABLE READ | 挡 | 挡* | 可能* |
+| SERIALIZABLE | 挡 | 挡 | 挡 |
+
+具体行为依赖数据库实现，不要仅凭标准名称推断 MySQL / PostgreSQL / SQLite 的全部细节。
+
+## v26 三种并发现象
+
+- **Dirty Read** = 读未提交。
+- **Non-repeatable Read** = 同一行重复读取，字段值变了。
+- **Phantom Read** = 相同范围查询的结果集合变了（多出行/少了行）。
+
+## v26 MVCC
+
+MVCC 通过多版本/快照控制事务可见性，提高读写并发。
+
+MVCC != `version_id_col`（那是应用/ORM 检测 stale update）。
+
+MVCC 也不等于「完全没有锁」。
+
+## v26 Deadlock
+
+循环等待；数据库通常会中止其中一个 transaction。
+
+事务应尽量短。统一资源访问顺序可以降低风险，但不能保证绝对不死锁。
+
+死锁后通常 rollback，再按策略重试**完整** transaction，不要从失败事务中间某条 SQL 继续跑。
+
+## v26 与 V23/V24 的关系
+
+- V23 Transaction = 一组操作的原子性。
+- V24 并发更新策略 = 多事务竞争同一数据时怎么改。
+- V26 Isolation/MVCC = 多事务并发时彼此能看到什么。
+
+## v26 SQLite 限制
+
+SQLite 用于当前 SQLAlchemy / 事务结构学习。
+
+它不能完整代表 MySQL/PostgreSQL 的隔离级别、MVCC、FOR UPDATE、死锁行为。
+
+Dirty Read / Non-repeatable Read / Phantom / MVCC 中部分文件属于「可执行概念模型」；Deadlock 是 Python 锁结构模拟。真正的双连接并发实验留给后续 MySQL/PostgreSQL 版本。
+
+本课不讲：InnoDB undo log、read view、PostgreSQL xmin/xmax、gap/next-key lock、Predicate Lock、SSI、死锁图算法、自动重试 backoff。
+
