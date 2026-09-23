@@ -1845,3 +1845,14 @@ FastAPI：
 
 uv run fastapi dev lessons/v29/app/main.py --port 8001
 
+# v30
+V29 之上做 SDK Streaming + FastAPI SSE。详细说明见 `lessons/v30/README.md`。
+
+推荐先跑：
+
+uv run python lessons/v30/01_basic_stream_demo.py
+
+FastAPI：
+
+uv run fastapi dev lessons/v30/app/main.py --port 8001
+
