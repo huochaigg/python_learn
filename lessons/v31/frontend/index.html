@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>V31 Agent Session</title>
+    <style>
+      body { font-family: sans-serif; max-width: 960px; margin: 24px auto; }
+      .row { display: flex; gap: 16px; }
+      .side { width: 240px; }
+      .main { flex: 1; }
+      textarea { width: 100%; min-height: 72px; }
+      button { margin: 0 8px 8px 0; }
+      #conversations, #messages, #tools {
+        white-space: pre-wrap; border: 1px solid #ccc; padding: 12px; min-height: 48px;
+      }
+      .conv { cursor: pointer; padding: 4px 0; }
+      .conv.active { font-weight: bold; }
+      .label { font-weight: bold; margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>V31 Session Agent</h1>
+    <div class="row">
+      <div class="side">
+        <button id="newConv" type="button">新建会话</button>
+        <div class="label">会话列表</div>
+        <div id="conversations"></div>
+      </div>
+      <div class="main">
+        <textarea id="message">SKU002 还有多少库存？</textarea>
+        <p>
+          <button id="send" type="button">发送</button>
+          <button id="stop" type="button">停止</button>
+        </p>
+        <div class="label">Tool 状态</div>
+        <div id="tools"></div>
+        <div class="label">历史消息</div>
+        <div id="messages"></div>
+      </div>
+    </div>
+    <script>
+      const headers = { "Content-Type": "application/json", "X-User-Id": "1" };
+      const messageEl = document.getElementById("message");
+      const messagesEl = document.getElementById("messages");
+      const toolsEl = document.getElementById("tools");
+      const convEl = document.getElementById("conversations");
+      const sendBtn = document.getElementById("send");
+      const stopBtn = document.getElementById("stop");
+      let controller = null;
+      let conversationId = null;
+      let conversations = [];
+
+      function appendTool(text) {
+        toolsEl.textContent += text + "\n";
+      }
+
+      function renderConversations() {
+        convEl.textContent = "";
+        for (const item of conversations) {
+          const row = document.createElement("div");
+          row.className = "conv" + (item.id === conversationId ? " active" : "");
+          row.textContent = item.title + " " + item.id.slice(0, 8);
+          row.addEventListener("click", () => switchConversation(item.id));
+          convEl.appendChild(row);
+        }
+      }
+
+      function renderMessages(rows) {
+        messagesEl.textContent = "";
+        for (const row of rows) {
+          const line = document.createElement("div");
+          line.textContent = row.role + "(" + row.status + "): " + row.content;
+          messagesEl.appendChild(line);
+        }
+      }
+
+      async function loadConversations() {
+        const response = await fetch("/conversations", { headers });
+        conversations = response.ok ? await response.json() : [];
+        if (!conversationId && conversations.length) conversationId = conversations[0].id;
+        renderConversations();
+      }
+
+      async function loadMessages() {
+        if (!conversationId) {
+          renderMessages([]);
+          return;
+        }
+        const response = await fetch("/conversations/" + conversationId + "/messages", { headers });
+        if (!response.ok) {
+          renderMessages([]);
+          return;
+        }
+        renderMessages(await response.json());
+      }
+
+      async function createConversation() {
+        const response = await fetch("/conversations", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ title: "会话 " + new Date().toLocaleTimeString() }),
+        });
+        if (!response.ok) return;
+        const created = await response.json();
+        conversationId = created.id;
+        await loadConversations();
+        await loadMessages();
+      }
+
+      async function switchConversation(id) {
+        conversationId = id;
+        renderConversations();
+        await loadMessages();
+      }
+
+      function parseFrame(frame) {
+        let eventName = "message";
+        const dataLines = [];
+        for (const raw of frame.split(/\r?\n/)) {
+          if (raw.startsWith("event:")) eventName = raw.slice(6).trim();
+          else if (raw.startsWith("data:")) dataLines.push(raw.slice(5).trimStart());
+        }
+        return { eventName, dataText: dataLines.join("\n") };
+      }
+
+      function consumeBuffer(buffer) {
+        const events = [];
+        while (true) {
+          const idxLf = buffer.indexOf("\n\n");
+          const idxCr = buffer.indexOf("\r\n\r\n");
+          let idx = -1;
+          let sep = 2;
+          if (idxLf >= 0 && (idxCr < 0 || idxLf <= idxCr)) {
+            idx = idxLf;
+            sep = 2;
+          } else if (idxCr >= 0) {
+            idx = idxCr;
+            sep = 4;
+          }
+          if (idx < 0) break;
+          events.push(parseFrame(buffer.slice(0, idx)));
+          buffer = buffer.slice(idx + sep);
+        }
+        return { events, buffer };
+      }
+
+      async function sendMessage() {
+        if (!conversationId) await createConversation();
+        if (!conversationId) return;
+        if (controller) controller.abort();
+        controller = new AbortController();
+        toolsEl.textContent = "";
+        const userLine = document.createElement("div");
+        userLine.textContent = "user(completed): " + messageEl.value;
+        messagesEl.appendChild(userLine);
+        const live = document.createElement("div");
+        live.textContent = "assistant(pending): ";
+        messagesEl.appendChild(live);
+        let buffer = "";
+        const decoder = new TextDecoder();
+        try {
+          const response = await fetch("/agent/chat/stream", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ conversation_id: conversationId, message: messageEl.value }),
+            signal: controller.signal,
+          });
+          if (!response.ok || !response.body) {
+            live.textContent = "HTTP " + response.status;
+            return;
+          }
+          const reader = response.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              buffer += decoder.decode();
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const split = consumeBuffer(buffer);
+            buffer = split.buffer;
+            for (const evt of split.events) handleEvent(evt, live);
+          }
+          const tail = consumeBuffer(buffer);
+          for (const evt of tail.events) handleEvent(evt, live);
+          await loadConversations();
+          await loadMessages();
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            appendTool("stopped");
+            await loadMessages();
+            return;
+          }
+          live.textContent = "request failed";
+        } finally {
+          controller = null;
+        }
+      }
+
+      function handleEvent(evt, live) {
+        let payload = {};
+        if (evt.dataText) {
+          try {
+            payload = JSON.parse(evt.dataText);
+          } catch {
+            return;
+          }
+        }
+        if (evt.eventName === "start") {
+          appendTool("start " + (payload.conversation_id || ""));
+        } else if (evt.eventName === "delta") {
+          live.textContent += payload.content || "";
+        } else if (evt.eventName === "tool_call") {
+          appendTool("tool_call " + (payload.name || ""));
+        } else if (evt.eventName === "tool_result") {
+          appendTool("tool_result " + (payload.result || ""));
+        } else if (evt.eventName === "done") {
+          appendTool("done");
+        } else if (evt.eventName === "error") {
+          appendTool("error " + (payload.message || ""));
+        }
+      }
+
+      function stopMessage() {
+        if (controller) controller.abort();
+      }
+
+      document.getElementById("newConv").addEventListener("click", createConversation);
+      sendBtn.addEventListener("click", sendMessage);
+      stopBtn.addEventListener("click", stopMessage);
+      loadConversations().then(loadMessages);
+    </script>
+  </body>
+</html>

@@ -1856,3 +1856,14 @@ FastAPI：
 
 uv run fastapi dev lessons/v30/app/main.py --port 8001
 
+# v31
+V30 之上做 SDK Session + MySQL 会话历史。详细说明见 `lessons/v31/README.md`。
+
+推荐先跑：
+
+uv run python lessons/v31/01_sqlite_session_demo.py
+
+FastAPI：
+
+uv run fastapi dev lessons/v31/app/main.py --port 8001
+
