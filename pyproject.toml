@@ -12,12 +12,21 @@ dependencies = [
     "fastapi[standard]>=0.141.1",
     "openai-agents>=0.22.3",
     "pymysql>=1.2.3",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "requests>=2.34.2",
     "sqlalchemy>=2.0.54",
 ]
 
 [project.scripts]
 python-learn = "python_learn:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+pythonpath = ["projects/agent_backend"]
+testpaths = ["projects/agent_backend/tests"]
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]

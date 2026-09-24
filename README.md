@@ -1867,3 +1867,14 @@ FastAPI：
 
 uv run fastapi dev lessons/v31/app/main.py --port 8001
 
+# v32
+从本版起长期项目在 `projects/agent_backend/`。主题：Structured Output + Pydantic + FastAPI 业务响应。说明见 `projects/agent_backend/docs/v32.md`。
+
+推荐先跑：
+
+uv run python projects/agent_backend/demos/v32/01_structured_output_demo.py
+
+FastAPI：
+
+uv run fastapi dev projects/agent_backend/app/main.py --port 8001
+

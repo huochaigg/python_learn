@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Backend</title>
+    <style>
+      body { font-family: sans-serif; max-width: 960px; margin: 24px auto; }
+      .row { display: flex; gap: 16px; }
+      .side { width: 240px; }
+      .main { flex: 1; }
+      textarea { width: 100%; min-height: 72px; }
+      button { margin: 0 8px 8px 0; }
+      #conversations, #messages, #tools, #product {
+        white-space: pre-wrap; border: 1px solid #ccc; padding: 12px; min-height: 48px;
+      }
+      .conv { cursor: pointer; padding: 4px 0; }
+      .conv.active { font-weight: bold; }
+      .label { font-weight: bold; margin-top: 12px; }
+      .card { border: 1px solid #999; padding: 8px; margin: 8px 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Agent Backend</h1>
+    <div class="row">
+      <div class="side">
+        <button id="newConv" type="button">新建会话</button>
+        <div class="label">会话列表</div>
+        <div id="conversations"></div>
+      </div>
+      <div class="main">
+        <textarea id="message">SKU002 还有多少库存？能不能购买？</textarea>
+        <p>
+          <button id="send" type="button">发送</button>
+          <button id="analyze" type="button">分析商品</button>
+          <button id="stop" type="button">停止</button>
+        </p>
+        <div class="label">产品查询结果</div>
+        <div id="product"></div>
+        <div class="label">Tool 状态</div>
+        <div id="tools"></div>
+        <div class="label">历史消息</div>
+        <div id="messages"></div>
+      </div>
+    </div>
+    <script>
+      const headers = { "Content-Type": "application/json", "X-User-Id": "1" };
+      const messageEl = document.getElementById("message");
+      const messagesEl = document.getElementById("messages");
+      const toolsEl = document.getElementById("tools");
+      const productEl = document.getElementById("product");
+      const convEl = document.getElementById("conversations");
+      const sendBtn = document.getElementById("send");
+      const stopBtn = document.getElementById("stop");
+      let controller = null;
+      let conversationId = null;
+      let conversations = [];
+
+      function appendTool(text) {
+        toolsEl.textContent += text + "\n";
+      }
+
+      function renderConversations() {
+        convEl.textContent = "";
+        for (const item of conversations) {
+          const row = document.createElement("div");
+          row.className = "conv" + (item.id === conversationId ? " active" : "");
+          row.textContent = item.title + " " + item.id.slice(0, 8);
+          row.addEventListener("click", () => switchConversation(item.id));
+          convEl.appendChild(row);
+        }
+      }
+
+      function renderProduct(payload) {
+        productEl.textContent = "";
+        if (!payload) return;
+        if (payload.type === "product_stock" && payload.data) {
+          const card = document.createElement("div");
+          card.className = "card";
+          const lines = [
+            "SKU: " + payload.data.sku,
+            "库存: " + payload.data.stock,
+            "可购买: " + (payload.data.can_purchase ? "是" : "否"),
+            payload.message || "",
+          ];
+          for (const text of lines) {
+            const line = document.createElement("div");
+            line.textContent = text;
+            card.appendChild(line);
+          }
+          productEl.appendChild(card);
+          return;
+        }
+        const line = document.createElement("div");
+        line.textContent = payload.message || JSON.stringify(payload);
+        productEl.appendChild(line);
+      }
+
+      function appendHistoryRow(row) {
+        if (row.message_type === "product_stock" || row.message_type === "not_found") {
+          let payload = null;
+          try {
+            payload = JSON.parse(row.content);
+          } catch {
+            payload = null;
+          }
+          const wrap = document.createElement("div");
+          wrap.className = "card";
+          const title = document.createElement("div");
+          title.textContent = row.role + "(" + row.message_type + ")";
+          wrap.appendChild(title);
+          if (payload && payload.type === "product_stock" && payload.data) {
+            const sku = document.createElement("div");
+            sku.textContent = "SKU: " + payload.data.sku;
+            const stock = document.createElement("div");
+            stock.textContent = "库存: " + payload.data.stock;
+            const buy = document.createElement("div");
+            buy.textContent = "可购买: " + (payload.data.can_purchase ? "是" : "否");
+            const msg = document.createElement("div");
+            msg.textContent = payload.message || "";
+            wrap.appendChild(sku);
+            wrap.appendChild(stock);
+            wrap.appendChild(buy);
+            wrap.appendChild(msg);
+          } else {
+            const msg = document.createElement("div");
+            msg.textContent = (payload && payload.message) || row.content;
+            wrap.appendChild(msg);
+          }
+          messagesEl.appendChild(wrap);
+          return;
+        }
+        const line = document.createElement("div");
+        line.textContent = row.role + "(" + row.status + "): " + row.content;
+        messagesEl.appendChild(line);
+      }
+
+      function renderMessages(rows) {
+        messagesEl.textContent = "";
+        for (const row of rows) appendHistoryRow(row);
+      }
+
+      async function loadConversations() {
+        const response = await fetch("/conversations", { headers });
+        conversations = response.ok ? await response.json() : [];
+        if (!conversationId && conversations.length) conversationId = conversations[0].id;
+        renderConversations();
+      }
+
+      async function loadMessages() {
+        if (!conversationId) {
+          renderMessages([]);
+          return;
+        }
+        const response = await fetch("/conversations/" + conversationId + "/messages", { headers });
+        if (!response.ok) {
+          renderMessages([]);
+          return;
+        }
+        renderMessages(await response.json());
+      }
+
+      async function createConversation() {
+        const response = await fetch("/conversations", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ title: "会话 " + new Date().toLocaleTimeString() }),
+        });
+        if (!response.ok) return;
+        const created = await response.json();
+        conversationId = created.id;
+        await loadConversations();
+        await loadMessages();
+      }
+
+      async function switchConversation(id) {
+        conversationId = id;
+        renderConversations();
+        await loadMessages();
+      }
+
+      function parseFrame(frame) {
+        let eventName = "message";
+        const dataLines = [];
+        for (const raw of frame.split(/\r?\n/)) {
+          if (raw.startsWith("event:")) eventName = raw.slice(6).trim();
+          else if (raw.startsWith("data:")) dataLines.push(raw.slice(5).trimStart());
+        }
+        return { eventName, dataText: dataLines.join("\n") };
+      }
+
+      function consumeBuffer(buffer) {
+        const events = [];
+        while (true) {
+          const idxLf = buffer.indexOf("\n\n");
+          const idxCr = buffer.indexOf("\r\n\r\n");
+          let idx = -1;
+          let sep = 2;
+          if (idxLf >= 0 && (idxCr < 0 || idxLf <= idxCr)) {
+            idx = idxLf;
+            sep = 2;
+          } else if (idxCr >= 0) {
+            idx = idxCr;
+            sep = 4;
+          }
+          if (idx < 0) break;
+          events.push(parseFrame(buffer.slice(0, idx)));
+          buffer = buffer.slice(idx + sep);
+        }
+        return { events, buffer };
+      }
+
+      async function sendMessage() {
+        if (!conversationId) await createConversation();
+        if (!conversationId) return;
+        if (controller) controller.abort();
+        controller = new AbortController();
+        toolsEl.textContent = "";
+        const userLine = document.createElement("div");
+        userLine.textContent = "user(completed): " + messageEl.value;
+        messagesEl.appendChild(userLine);
+        const live = document.createElement("div");
+        live.textContent = "assistant(pending): ";
+        messagesEl.appendChild(live);
+        let buffer = "";
+        const decoder = new TextDecoder();
+        try {
+          const response = await fetch("/agent/chat/stream", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ conversation_id: conversationId, message: messageEl.value }),
+            signal: controller.signal,
+          });
+          if (!response.ok || !response.body) {
+            live.textContent = "HTTP " + response.status;
+            return;
+          }
+          const reader = response.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              buffer += decoder.decode();
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const split = consumeBuffer(buffer);
+            buffer = split.buffer;
+            for (const evt of split.events) handleEvent(evt, live);
+          }
+          const tail = consumeBuffer(buffer);
+          for (const evt of tail.events) handleEvent(evt, live);
+          await loadConversations();
+          await loadMessages();
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            appendTool("stopped");
+            await loadMessages();
+            return;
+          }
+          live.textContent = "request failed";
+        } finally {
+          controller = null;
+        }
+      }
+
+      function handleEvent(evt, live) {
+        let payload = {};
+        if (evt.dataText) {
+          try {
+            payload = JSON.parse(evt.dataText);
+          } catch {
+            return;
+          }
+        }
+        if (evt.eventName === "start") {
+          appendTool("start " + (payload.conversation_id || ""));
+        } else if (evt.eventName === "delta") {
+          live.textContent += payload.content || "";
+        } else if (evt.eventName === "tool_call") {
+          appendTool("tool_call " + (payload.name || ""));
+        } else if (evt.eventName === "tool_result") {
+          appendTool("tool_result " + (payload.result || ""));
+        } else if (evt.eventName === "done") {
+          appendTool("done");
+        } else if (evt.eventName === "error") {
+          appendTool("error " + (payload.message || ""));
+        }
+      }
+
+      async function analyzeProduct() {
+        if (!conversationId) await createConversation();
+        if (!conversationId) return;
+        productEl.textContent = "分析中...";
+        try {
+          const response = await fetch("/agent/product/analyze", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ conversation_id: conversationId, message: messageEl.value }),
+          });
+          if (!response.ok) {
+            productEl.textContent = "HTTP " + response.status;
+            return;
+          }
+          const payload = await response.json();
+          renderProduct(payload);
+          await loadConversations();
+          await loadMessages();
+        } catch {
+          productEl.textContent = "request failed";
+        }
+      }
+
+      function stopMessage() {
+        if (controller) controller.abort();
+      }
+
+      document.getElementById("newConv").addEventListener("click", createConversation);
+      document.getElementById("analyze").addEventListener("click", analyzeProduct);
+      sendBtn.addEventListener("click", sendMessage);
+      stopBtn.addEventListener("click", stopMessage);
+      loadConversations().then(loadMessages);
+    </script>
+  </body>
+</html>
