@@ -30,6 +30,7 @@ async def init_schema() -> None:
     from ..models import Base
     from ..models.conversation import Conversation as _Conversation  # noqa: F401
     from ..models.message import Message as _Message  # noqa: F401
+    from ..models.order import Order as _Order  # noqa: F401
     from ..models.product import Product as _Product  # noqa: F401
 
     async with engine.begin() as conn:
@@ -72,4 +73,22 @@ async def seed_products() -> None:
         for sku, name, stock in initial:
             if await product_repository.get_by_sku(session, sku) is None:
                 session.add(Product(sku=sku, name=name, stock=stock))
+        await session.commit()
+
+
+async def seed_orders() -> None:
+    from ..models.order import Order
+    from ..repositories.order_repository import order_repository
+
+    initial = [
+        ("ORD001", 1, "SKU002", "shipped"),
+        ("ORD002", 1, "SKU001", "pending"),
+        ("ORD003", 2, "SKU001", "delivered"),
+    ]
+    async with AsyncSessionLocal() as session:
+        for order_no, user_id, sku, status in initial:
+            if await order_repository.get_by_order_no(session, order_no) is None:
+                session.add(
+                    Order(order_no=order_no, user_id=user_id, sku=sku, status=status)
+                )
         await session.commit()

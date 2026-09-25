@@ -7,21 +7,32 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents import Runner
-from agents.exceptions import ModelBehaviorError
+from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
 from pydantic import ValidationError
 
 from ..agents.context import AgentContext
 from ..agents.product_agent import product_agent
 from ..agents.product_analysis_agent import product_analysis_agent
+from ..agents.run_trace import last_agent_name, list_handoffs
+from ..agents.triage_agent import triage_agent
 from ..repositories.product_repository import product_repository
+from ..schemas.handoff import MultiAgentChatResponse
 from ..schemas.product import ProductAnalyzeResponse, ProductStockData, ProductStockResult
 from ..sessions.agent_session import get_agent_session
 from ..sessions.run_guard import conversation_run_guard
 from .conversation_service import conversation_service
-from .errors import BusinessMessageSaveError, ConversationBusy, StructuredOutputError
+from .errors import (
+    AgentMaxTurnsError,
+    BusinessMessageSaveError,
+    ConversationBusy,
+    StructuredOutputError,
+)
+
 from .stream_events import extract_text_delta, public_tool_result
 
 logger = logging.getLogger(__name__)
+
+MULTI_AGENT_MAX_TURNS = 8
 
 
 class AgentService:
@@ -306,6 +317,87 @@ class AgentService:
                 )
             except Exception:
                 logger.exception("failed assistant message save also failed")
+            raise
+        finally:
+            await conversation_run_guard.release(conversation_id)
+
+    async def multi_chat(
+        self,
+        session: AsyncSession,
+        message: str,
+        *,
+        conversation_id: str,
+        user_id: int,
+    ) -> MultiAgentChatResponse:
+        # 应用层策略：每一轮 HTTP 都从 Triage Agent 开始。
+        # SDK Session 只负责历史，不会记住下一轮该跑哪个 Agent。
+        await conversation_service.require_owned(conversation_id, user_id)
+        if not await conversation_run_guard.try_acquire(conversation_id):
+            raise ConversationBusy
+        await conversation_service.add_message(conversation_id, "user", message, "completed")
+        assistant: Any = None
+        try:
+            sdk_session = get_agent_session(conversation_id)
+            context = AgentContext(db=session, user_id=user_id)
+            try:
+                result = await Runner.run(
+                    triage_agent,
+                    message,
+                    context=context,
+                    session=sdk_session,
+                    max_turns=MULTI_AGENT_MAX_TURNS,
+                )
+            except MaxTurnsExceeded as extra:
+                logger.exception(
+                    "multi-agent max_turns exceeded conversation_id=%s", conversation_id
+                )
+                if assistant is None:
+                    try:
+                        await conversation_service.add_message(
+                            conversation_id, "assistant", "", "failed"
+                        )
+                    except Exception:
+                        logger.exception("failed assistant message save also failed")
+                raise AgentMaxTurnsError from extra
+            except ModelBehaviorError as extra:
+                logger.exception("multi-agent handoff failed conversation_id=%s", conversation_id)
+                if assistant is None:
+                    try:
+                        await conversation_service.add_message(
+                            conversation_id, "assistant", "", "failed"
+                        )
+                    except Exception:
+                        logger.exception("failed assistant message save also failed")
+                raise
+            answer = str(result.final_output or "")
+            try:
+                assistant = await conversation_service.add_message(
+                    conversation_id, "assistant", answer, "completed"
+                )
+            except Exception as extra:
+                logger.exception(
+                    "business assistant message save failed conversation_id=%s",
+                    conversation_id,
+                )
+                raise BusinessMessageSaveError from extra
+            return MultiAgentChatResponse(
+                conversation_id=conversation_id,
+                answer=answer,
+                last_agent=last_agent_name(result),
+                handoffs=list_handoffs(result),
+                reasons=list(context.handoff_reasons),
+            )
+        except (AgentMaxTurnsError, BusinessMessageSaveError, ConversationBusy, ModelBehaviorError):
+            raise
+        except Exception:
+            logger.exception("multi_chat failed conversation_id=%s", conversation_id)
+            if assistant is None:
+                try:
+                    await conversation_service.add_message(
+                        conversation_id, "assistant", "", "failed"
+                    )
+                except Exception:
+                    logger.exception("failed assistant message save also failed")
             raise
         finally:
             await conversation_run_guard.release(conversation_id)

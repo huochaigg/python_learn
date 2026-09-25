@@ -6,14 +6,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from agents.exceptions import ModelBehaviorError
 
 from ..core.database import AsyncSessionLocal, get_db
 from ..core.sse import encode_sse
 from ..schemas.agent import AgentChatRequest, AgentChatResponse
+from ..schemas.handoff import MultiAgentChatResponse
 from ..schemas.product import ProductAnalyzeRequest, ProductAnalyzeResponse
 from ..services.agent_service import agent_service
 from ..services.conversation_service import conversation_service
 from ..services.errors import (
+    AgentMaxTurnsError,
     BusinessMessageSaveError,
     ConversationBusy,
     ConversationNotFound,
@@ -55,6 +58,32 @@ async def chat(body: AgentChatRequest, db: DbSession, user_id: UserId) -> AgentC
     except Exception as extra:
         raise HTTPException(status_code=500, detail="agent run failed") from extra
     return AgentChatResponse(conversation_id=body.conversation_id, answer=answer)
+
+
+@router.post("/multi/chat", response_model=MultiAgentChatResponse)
+async def multi_chat(
+    body: AgentChatRequest, db: DbSession, user_id: UserId
+) -> MultiAgentChatResponse:
+    # 不使用 Structured Output。HTTP DTO 是 MultiAgentChatResponse，和 V32 analyze 的 response_model 分开。
+    try:
+        return await agent_service.multi_chat(
+            db,
+            body.message,
+            conversation_id=body.conversation_id,
+            user_id=user_id,
+        )
+    except ConversationNotFound as extra:
+        raise HTTPException(status_code=404, detail="conversation not found") from extra
+    except ConversationBusy as extra:
+        raise HTTPException(status_code=409, detail="conversation is busy") from extra
+    except AgentMaxTurnsError as extra:
+        raise HTTPException(status_code=502, detail="too many agent turns") from extra
+    except ModelBehaviorError as extra:
+        raise HTTPException(status_code=502, detail="agent handoff failed") from extra
+    except BusinessMessageSaveError as extra:
+        raise HTTPException(status_code=500, detail="business message save failed") from extra
+    except Exception as extra:
+        raise HTTPException(status_code=500, detail="agent run failed") from extra
 
 
 @router.post("/product/analyze", response_model=ProductAnalyzeResponse)

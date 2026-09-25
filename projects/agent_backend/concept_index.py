@@ -31,6 +31,26 @@ CONCEPT_INDEX = {
         "[V32] demos/v32/03_validation_demo.py -> main()",
         "[V32] tests/test_v32_pydantic.py",
     ],
+    "Handoff": [
+        "[V33] app/agents/triage_agent.py -> triage_agent",
+        "[V33] demos/v33/01_handoff_basic_demo.py -> main()",
+    ],
+    "handoff()": [
+        "[V33] app/agents/triage_agent.py -> handoff()",
+    ],
+    "on_handoff": [
+        "[V33] app/agents/triage_agent.py -> on_inventory_handoff()",
+    ],
+    "input_type": [
+        "[V33] app/schemas/handoff.py -> HandoffData",
+    ],
+    "Agent.as_tool": [
+        "[V33] app/agents/manager_agent.py -> manager_agent",
+        "[V33] demos/v33/03_agents_as_tools_demo.py -> main()",
+    ],
+    "result.last_agent": [
+        "[V33] app/agents/run_trace.py -> last_agent_name()",
+    ],
 }
 
 

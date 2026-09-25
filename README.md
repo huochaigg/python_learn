@@ -1878,3 +1878,14 @@ FastAPI：
 
 uv run fastapi dev projects/agent_backend/app/main.py --port 8001
 
+# v33
+长期项目继续在 `projects/agent_backend/` 增量开发。主题：Handoff + Multi-Agent + Agents as Tools。说明见 `projects/agent_backend/docs/v33.md`。
+
+推荐先跑：
+
+uv run python projects/agent_backend/demos/v33/01_handoff_basic_demo.py
+
+FastAPI：
+
+uv run fastapi dev projects/agent_backend/app/main.py --port 8001
+

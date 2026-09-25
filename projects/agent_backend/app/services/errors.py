@@ -16,3 +16,7 @@ class ConversationDeleteError(Exception):
 
 class StructuredOutputError(Exception):
     pass
+
+
+class AgentMaxTurnsError(Exception):
+    pass

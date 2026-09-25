@@ -1,7 +1,7 @@
 """
 文件作用：长期知识索引。按版本追加，不覆盖旧条目。
 运行命令：uv run python projects/agent_backend/notes.py
-观察重点：V32 能画出 自然语言 → Tool → output_type → response_model → 前端卡片。
+观察重点：V33 能画出 Handoff 交控制权、as_tool 保留控制权。
 """
 
 NOTES = """
@@ -33,6 +33,24 @@ NOTES = """
 [V32] Streaming
   文本 delta 可展示。结构化 JSON 片段不能当完整对象。
   等流结束再读 final_output。不要每个 delta 都 validate。
+
+[V33] Handoff
+  Agent.handoffs / handoff() 把当前轮次交给另一个 Agent。
+  模型选择 transfer_to_*，不是 Python if/else。
+  交接后目标 Agent 生成最终回答。result.last_agent 是本轮回答者。
+
+[V33] input_type / on_handoff
+  input_type 是交接 Tool 的 Pydantic 元数据，不替换下一位 Agent 的用户输入。
+  提供 input_type 必须同时给 on_handoff。
+  鉴权、user_id、AsyncSession 仍来自 AgentContext。
+
+[V33] Agents as Tools
+  Agent.as_tool() 让 Manager 调用专家子任务，控制权不交出去。
+  专家拿到生成的 input，结果回到 Manager。last_agent 仍是 Manager。
+
+[V33] 下一轮入口
+  SDK Session 不会自动选择下一轮 Agent。
+  本版每个 HTTP 请求都从 Triage 开始。
 """
 
 

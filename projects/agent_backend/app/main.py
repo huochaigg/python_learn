@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .core.database import engine, init_schema, migrate_schema, seed_products
+from .core.database import engine, init_schema, migrate_schema, seed_orders, seed_products
 from .routers.agent_router import router as agent_router
 from .routers.conversation_router import router as conversation_router
 from .sessions.agent_session import init_sdk_session_tables
@@ -25,12 +25,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_schema()
     await migrate_schema()
     await seed_products()
+    await seed_orders()
     await init_sdk_session_tables()
     yield
     await engine.dispose()
 
 
-app = FastAPI(title="agent_backend", version="0.32.0", lifespan=lifespan)
+app = FastAPI(title="agent_backend", version="0.33.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

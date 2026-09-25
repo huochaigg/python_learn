@@ -2,9 +2,9 @@
 
 从 V32 起的长期演进项目。V1～V31 历史课仍在 `lessons/`。
 
-当前版本：**V32 Structured Output + Pydantic + FastAPI 业务响应**。
+当前版本：**V33 Handoff + Multi-Agent + Agents as Tools**。
 
-详细记录：`docs/v32.md`。
+详细记录：`docs/v33.md`。上一版：`docs/v32.md`。
 
 ## 启动
 
@@ -20,6 +20,14 @@ uv run fastapi dev projects/agent_backend/app/main.py --port 8001
 ```
 
 浏览器：`http://127.0.0.1:8001/`
+
+## V33 Demo
+
+```
+uv run python projects/agent_backend/demos/v33/01_handoff_basic_demo.py
+uv run python projects/agent_backend/demos/v33/02_handoff_context_demo.py
+uv run python projects/agent_backend/demos/v33/03_agents_as_tools_demo.py
+```
 
 ## V32 Demo
 
