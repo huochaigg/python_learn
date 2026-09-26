@@ -8,10 +8,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
+from .core.agent_exceptions import AgentRunError, error_payload
 from .core.database import engine, init_schema, migrate_schema, seed_orders, seed_products
 from .routers.agent_router import router as agent_router
 from .routers.conversation_router import router as conversation_router
@@ -31,7 +32,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await engine.dispose()
 
 
-app = FastAPI(title="agent_backend", version="0.33.0", lifespan=lifespan)
+app = FastAPI(title="agent_backend", version="0.34.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -40,6 +41,13 @@ app.add_middleware(
 )
 app.include_router(agent_router)
 app.include_router(conversation_router)
+
+
+@app.exception_handler(AgentRunError)
+async def handle_agent_run_error(_request: Request, exc: AgentRunError) -> JSONResponse:
+    # SDK Exception → Service map_sdk_exception → AgentRunError → 这里。
+    # 不要把 str(exc.__cause__) 写进响应。
+    return JSONResponse(status_code=exc.status_code, content=error_payload(exc))
 
 
 @app.get("/health")

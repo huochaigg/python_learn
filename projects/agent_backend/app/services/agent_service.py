@@ -11,10 +11,16 @@ from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
 from pydantic import ValidationError
 
 from ..agents.context import AgentContext
+from ..agents.guarded_agent import GUARDED_MAX_TURNS, GUARDED_RUN_CONFIG, guarded_triage_agent
 from ..agents.product_agent import product_agent
 from ..agents.product_analysis_agent import product_analysis_agent
 from ..agents.run_trace import last_agent_name, list_handoffs
 from ..agents.triage_agent import triage_agent
+from ..core.agent_exceptions import (
+    error_payload,
+    is_guardrail_block,
+    map_sdk_exception,
+)
 from ..repositories.product_repository import product_repository
 from ..schemas.handoff import MultiAgentChatResponse
 from ..schemas.product import ProductAnalyzeResponse, ProductStockData, ProductStockResult
@@ -399,6 +405,207 @@ class AgentService:
                 except Exception:
                     logger.exception("failed assistant message save also failed")
             raise
+        finally:
+            await conversation_run_guard.release(conversation_id)
+
+
+    async def guarded_chat(
+        self,
+        session: AsyncSession,
+        message: str,
+        *,
+        conversation_id: str,
+        user_id: int,
+    ) -> str:
+        await conversation_service.require_owned(conversation_id, user_id)
+        if not await conversation_run_guard.try_acquire(conversation_id):
+            raise ConversationBusy
+        await conversation_service.add_message(conversation_id, "user", message, "completed")
+        assistant: Any = None
+        try:
+            sdk_session = get_agent_session(conversation_id)
+            context = AgentContext(db=session, user_id=user_id)
+            result = await Runner.run(
+                guarded_triage_agent,
+                message,
+                context=context,
+                session=sdk_session,
+                max_turns=GUARDED_MAX_TURNS,
+                run_config=GUARDED_RUN_CONFIG,
+            )
+            answer = str(result.final_output or "")
+            try:
+                assistant = await conversation_service.add_message(
+                    conversation_id, "assistant", answer, "completed"
+                )
+            except Exception as extra:
+                logger.exception(
+                    "business assistant message save failed conversation_id=%s",
+                    conversation_id,
+                )
+                raise BusinessMessageSaveError from extra
+            return answer
+        except BusinessMessageSaveError:
+            raise
+        except Exception as extra:
+            mapped = map_sdk_exception(extra)
+            status = "rejected" if is_guardrail_block(mapped.code) else "failed"
+            logger.exception(
+                "guarded_chat failed conversation_id=%s code=%s",
+                conversation_id,
+                mapped.code,
+            )
+            if assistant is None:
+                try:
+                    await conversation_service.add_message(
+                        conversation_id,
+                        "assistant",
+                        mapped.message if status == "rejected" else "",
+                        status,
+                    )
+                except Exception:
+                    logger.exception("failed assistant message save also failed")
+            raise mapped from extra
+        finally:
+            await conversation_run_guard.release(conversation_id)
+
+    async def guarded_stream(
+        self,
+        session: AsyncSession,
+        message: str,
+        *,
+        conversation_id: str,
+        user_id: int,
+        request: Request | None = None,
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        # 严格最终审核：文本 delta 先缓冲，Output Guardrail 通过后再发给前端。
+        # 不能指望已经发出去的 delta 被 Output Guardrail 追回。
+        await conversation_service.require_owned(conversation_id, user_id)
+        if not await conversation_run_guard.try_acquire(conversation_id):
+            raise ConversationBusy
+        await conversation_service.add_message(conversation_id, "user", message, "completed")
+        pending = await conversation_service.add_message(
+            conversation_id, "assistant", "", "pending"
+        )
+        answer_parts: list[str] = []
+        completed = False
+        sdk_session = get_agent_session(conversation_id)
+        context = AgentContext(db=session, user_id=user_id)
+        result = Runner.run_streamed(
+            guarded_triage_agent,
+            message,
+            context=context,
+            session=sdk_session,
+            max_turns=GUARDED_MAX_TURNS,
+            run_config=GUARDED_RUN_CONFIG,
+        )
+        last_tool_name = "tool"
+
+        async def drain_cancelled_run() -> None:
+            result.cancel()
+            async for _ in result.stream_events():
+                pass
+
+        async def mark_assistant(status: str, content: str) -> None:
+            try:
+                await conversation_service.finish_message(pending.id, content, status)
+            except Exception:
+                logger.exception(
+                    "assistant message status update failed conversation_id=%s status=%s",
+                    conversation_id,
+                    status,
+                )
+
+        async def persist_failed() -> None:
+            task = asyncio.ensure_future(mark_assistant("failed", "".join(answer_parts)))
+            cancelled: asyncio.CancelledError | None = None
+            while not task.done():
+                try:
+                    await asyncio.wait({task})
+                except asyncio.CancelledError as extra:
+                    if cancelled is None:
+                        cancelled = extra
+            if cancelled is not None:
+                raise cancelled
+
+        try:
+            async for event in result.stream_events():
+                if request is not None and await request.is_disconnected():
+                    await drain_cancelled_run()
+                    await mark_assistant("failed", "".join(answer_parts))
+                    return
+                if event.type == "raw_response_event":
+                    delta = extract_text_delta(event)
+                    if delta:
+                        answer_parts.append(delta)
+                    continue
+                if event.type == "run_item_stream_event":
+                    item = event.item
+                    item_type = getattr(item, "type", "")
+                    if item_type == "tool_call_item":
+                        last_tool_name = getattr(item, "tool_name", None) or "tool"
+                        yield ("tool_call", {"name": last_tool_name})
+                    elif item_type == "tool_call_output_item":
+                        yield (
+                            "tool_result",
+                            {
+                                "name": last_tool_name,
+                                "result": public_tool_result(getattr(item, "output", "")),
+                            },
+                        )
+                    continue
+            if request is not None and await request.is_disconnected():
+                await mark_assistant("failed", "".join(answer_parts))
+                return
+            if not result.is_complete:
+                await mark_assistant("failed", "".join(answer_parts))
+                yield (
+                    "error",
+                    {"code": "AGENT_STREAM_INCOMPLETE", "message": "stream not complete"},
+                )
+                return
+            final_answer = str(result.final_output or "".join(answer_parts))
+            if final_answer:
+                yield ("delta", {"content": final_answer})
+            try:
+                await conversation_service.finish_message(pending.id, final_answer, "completed")
+                completed = True
+            except Exception:
+                logger.exception(
+                    "business assistant message save failed conversation_id=%s",
+                    conversation_id,
+                )
+                await mark_assistant("failed", final_answer)
+                yield (
+                    "error",
+                    {
+                        "code": "BUSINESS_MESSAGE_SAVE_ERROR",
+                        "message": "answer generated but business message save failed",
+                    },
+                )
+                return
+            yield ("done", {"conversation_id": conversation_id, "answer": final_answer})
+        except asyncio.CancelledError:
+            if not completed:
+                await persist_failed()
+            await drain_cancelled_run()
+            raise
+        except GeneratorExit:
+            if not completed:
+                await persist_failed()
+            await drain_cancelled_run()
+            raise
+        except Exception as extra:
+            mapped = map_sdk_exception(extra)
+            logger.exception(
+                "guarded_stream failed conversation_id=%s code=%s",
+                conversation_id,
+                mapped.code,
+            )
+            status = "rejected" if is_guardrail_block(mapped.code) else "failed"
+            content = mapped.message if status == "rejected" else "".join(answer_parts)
+            await mark_assistant(status, content)
+            yield ("error", error_payload(mapped))
         finally:
             await conversation_run_guard.release(conversation_id)
 

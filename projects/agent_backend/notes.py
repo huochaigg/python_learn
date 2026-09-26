@@ -1,7 +1,7 @@
 """
 文件作用：长期知识索引。按版本追加，不覆盖旧条目。
 运行命令：uv run python projects/agent_backend/notes.py
-观察重点：V33 能画出 Handoff 交控制权、as_tool 保留控制权。
+观察重点：V34 能分清 Guardrail、Pydantic 和 Repository 权限。
 """
 
 NOTES = """
@@ -51,6 +51,23 @@ NOTES = """
 [V33] 下一轮入口
   SDK Session 不会自动选择下一轮 Agent。
   本版每个 HTTP 请求都从 Triage 开始。
+
+[V34] Input Guardrail
+  链首 Agent 运行前检查输入。run_in_parallel=False 才会阻塞 Tool。
+  tripwire_triggered=True 抛 InputGuardrailTripwireTriggered。
+  不是普通 Tool，也不是 LLM 分类器权限系统。
+
+[V34] Output Guardrail
+  最终输出已经生成后才检查。不等于 Pydantic response_model。
+  追不回已经通过 SSE 发出的 delta。
+
+[V34] Tool Guardrail
+  Input 在 Tool 前；Output 在 Tool 后，不能撤销已执行的数据库操作。
+  allow / reject_content / raise_exception 三条路。
+
+[V34] 异常映射
+  SDK Exception → AgentRunError → HTTP/SSE。应用层 code 不是 SDK 字段。
+  max_turns 是 Agent Loop 轮次，不是历史条数。
 """
 
 

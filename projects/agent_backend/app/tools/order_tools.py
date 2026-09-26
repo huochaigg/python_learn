@@ -3,12 +3,13 @@ import logging
 from agents import RunContextWrapper, function_tool
 
 from ..agents.context import AgentContext
+from ..guardrails.tool_guardrails import check_tool_output_secrets
 from ..repositories.order_repository import order_repository
 
 logger = logging.getLogger(__name__)
 
 
-@function_tool
+@function_tool(tool_output_guardrails=[check_tool_output_secrets])
 async def get_order_status(ctx: RunContextWrapper[AgentContext], order_no: str) -> str:
     """按订单号查询当前用户的订单状态。只读，不创建、不取消、不扣库存。
 

@@ -11,3 +11,4 @@ class AgentContext:
     db: AsyncSession
     user_id: int | None = None
     handoff_reasons: list[str] = field(default_factory=list)
+    tool_calls: list[str] = field(default_factory=list)

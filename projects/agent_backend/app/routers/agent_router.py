@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from agents.exceptions import ModelBehaviorError
 
+from ..core.agent_exceptions import AgentRunError, error_payload
 from ..core.database import AsyncSessionLocal, get_db
 from ..core.sse import encode_sse
 from ..schemas.agent import AgentChatRequest, AgentChatResponse
@@ -149,6 +150,83 @@ async def stream_chat(
             raise
         except Exception:
             logger.exception("sse generate failed")
+            yield encode_sse(
+                "error",
+                {"code": "AGENT_STREAM_ERROR", "message": "agent stream failed"},
+            )
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/guarded/chat", response_model=AgentChatResponse)
+async def guarded_chat(
+    body: AgentChatRequest, db: DbSession, user_id: UserId
+) -> AgentChatResponse:
+    try:
+        answer = await agent_service.guarded_chat(
+            db,
+            body.message,
+            conversation_id=body.conversation_id,
+            user_id=user_id,
+        )
+    except ConversationNotFound as extra:
+        raise HTTPException(status_code=404, detail="conversation not found") from extra
+    except ConversationBusy as extra:
+        raise HTTPException(status_code=409, detail="conversation is busy") from extra
+    except BusinessMessageSaveError as extra:
+        raise HTTPException(status_code=500, detail="business message save failed") from extra
+    return AgentChatResponse(conversation_id=body.conversation_id, answer=answer)
+
+
+@router.post("/guarded/stream")
+async def guarded_stream(
+    body: AgentChatRequest, request: Request, user_id: UserId
+) -> StreamingResponse:
+    try:
+        await conversation_service.require_owned(body.conversation_id, user_id)
+    except ConversationNotFound as extra:
+        raise HTTPException(status_code=404, detail="conversation not found") from extra
+    if conversation_run_guard.is_active(body.conversation_id):
+        raise HTTPException(status_code=409, detail="conversation is busy")
+
+    request_id = uuid.uuid4().hex
+
+    async def generate():
+        yield encode_sse(
+            "start",
+            {"request_id": request_id, "conversation_id": body.conversation_id},
+        )
+        try:
+            async with AsyncSessionLocal() as session:
+                async for event_name, data in agent_service.guarded_stream(
+                    session,
+                    body.message,
+                    conversation_id=body.conversation_id,
+                    user_id=user_id,
+                    request=request,
+                ):
+                    if await request.is_disconnected():
+                        break
+                    yield encode_sse(event_name, data)
+        except ConversationBusy:
+            yield encode_sse(
+                "error",
+                {"code": "CONVERSATION_BUSY", "message": "conversation is busy"},
+            )
+        except AgentRunError as extra:
+            yield encode_sse("error", error_payload(extra))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("guarded sse generate failed")
             yield encode_sse(
                 "error",
                 {"code": "AGENT_STREAM_ERROR", "message": "agent stream failed"},

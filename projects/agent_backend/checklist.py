@@ -25,6 +25,14 @@ CHECKLIST = [
     "[V33] 库存请求应交给 Inventory Agent",
     "[V33] 订单请求应交给 Order Agent",
     "[V33] Manager 调用专家后仍自己生成最终回答",
+    "[V34] 能解释 Input Guardrail 与普通 Tool 的区别",
+    "[V34] 知道 run_in_parallel=False 才会阻塞 Agent/Tool",
+    "[V34] 能区分 Guardrail、Pydantic 和 Repository 权限",
+    "[V34] 知道 Tool Output Guardrail 不能撤销已执行的写操作",
+    "[V34] 能把 SDK 异常映射成应用层错误码",
+    "[V34] 知道 SSE 开始后不能改 HTTP 状态码",
+    "[V34] 知道 max_turns 不是聊天历史条数",
+    "[V34] Guardrail 拒绝时 Message 不能标 completed",
 ]
 
 

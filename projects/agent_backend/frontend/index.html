@@ -11,7 +11,7 @@
       .main { flex: 1; }
       textarea { width: 100%; min-height: 72px; }
       button { margin: 0 8px 8px 0; }
-      #conversations, #messages, #tools, #product, #multiResult {
+      #conversations, #messages, #tools, #product, #multiResult, #guardedResult {
         white-space: pre-wrap; border: 1px solid #ccc; padding: 12px; min-height: 48px;
       }
       .conv { cursor: pointer; padding: 4px 0; }
@@ -34,8 +34,11 @@
           <button id="send" type="button">发送</button>
           <button id="analyze" type="button">分析商品</button>
           <button id="multi" type="button">多 Agent</button>
+          <button id="guarded" type="button">守卫对话</button>
           <button id="stop" type="button">停止</button>
         </p>
+        <div class="label">守卫结果</div>
+        <div id="guardedResult"></div>
         <div class="label">多 Agent 结果</div>
         <div id="multiResult"></div>
         <div class="label">产品查询结果</div>
@@ -53,6 +56,7 @@
       const toolsEl = document.getElementById("tools");
       const productEl = document.getElementById("product");
       const multiResultEl = document.getElementById("multiResult");
+      const guardedResultEl = document.getElementById("guardedResult");
       const convEl = document.getElementById("conversations");
       const sendBtn = document.getElementById("send");
       const stopBtn = document.getElementById("stop");
@@ -341,6 +345,32 @@
         }
       }
 
+      async function guardedChat() {
+        if (!conversationId) await createConversation();
+        if (!conversationId) return;
+        guardedResultEl.textContent = "处理中...";
+        try {
+          const response = await fetch("/agent/guarded/chat", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ conversation_id: conversationId, message: messageEl.value }),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            guardedResultEl.textContent =
+              "code=" + (payload.code || response.status) +
+              "\n" + (payload.message || payload.detail || "");
+            await loadMessages();
+            return;
+          }
+          guardedResultEl.textContent = payload.answer || "";
+          await loadConversations();
+          await loadMessages();
+        } catch {
+          guardedResultEl.textContent = "request failed";
+        }
+      }
+
       function stopMessage() {
         if (controller) controller.abort();
       }
@@ -348,6 +378,7 @@
       document.getElementById("newConv").addEventListener("click", createConversation);
       document.getElementById("analyze").addEventListener("click", analyzeProduct);
       document.getElementById("multi").addEventListener("click", multiChat);
+      document.getElementById("guarded").addEventListener("click", guardedChat);
       sendBtn.addEventListener("click", sendMessage);
       stopBtn.addEventListener("click", stopMessage);
       loadConversations().then(loadMessages);

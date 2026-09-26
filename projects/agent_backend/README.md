@@ -2,9 +2,9 @@
 
 从 V32 起的长期演进项目。V1～V31 历史课仍在 `lessons/`。
 
-当前版本：**V33 Handoff + Multi-Agent + Agents as Tools**。
+当前版本：**V34 Guardrails + Tool 安全边界 + 异常处理**。
 
-详细记录：`docs/v33.md`。上一版：`docs/v32.md`。
+详细记录：`docs/v34.md`。上一版：`docs/v33.md`。
 
 ## 启动
 
@@ -20,6 +20,15 @@ uv run fastapi dev projects/agent_backend/app/main.py --port 8001
 ```
 
 浏览器：`http://127.0.0.1:8001/`
+
+## V34 Demo
+
+```
+uv run python projects/agent_backend/demos/v34/01_input_guardrail_demo.py
+uv run python projects/agent_backend/demos/v34/02_output_guardrail_demo.py
+uv run python projects/agent_backend/demos/v34/03_tool_guardrail_demo.py
+uv run python projects/agent_backend/demos/v34/04_agent_error_demo.py
+```
 
 ## V33 Demo
 

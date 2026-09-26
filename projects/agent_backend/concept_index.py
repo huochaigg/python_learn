@@ -51,6 +51,24 @@ CONCEPT_INDEX = {
     "result.last_agent": [
         "[V33] app/agents/run_trace.py -> last_agent_name()",
     ],
+    "Input Guardrail": [
+        "[V34] demos/v34/01_input_guardrail_demo.py -> main()",
+        "[V34] app/guardrails/input_guardrails.py -> check_business_scope()",
+    ],
+    "Output Guardrail": [
+        "[V34] demos/v34/02_output_guardrail_demo.py -> main()",
+        "[V34] app/guardrails/output_guardrails.py -> check_final_output()",
+    ],
+    "Tool Input Guardrail": [
+        "[V34] demos/v34/03_tool_guardrail_demo.py -> main()",
+        "[V34] app/guardrails/tool_guardrails.py -> check_sku_tool_input()",
+    ],
+    "Tool Output Guardrail": [
+        "[V34] app/guardrails/tool_guardrails.py -> check_tool_output_secrets()",
+    ],
+    "Exception Mapping": [
+        "[V34] app/core/agent_exceptions.py -> map_sdk_exception()",
+    ],
 }
 
 

@@ -1889,3 +1889,14 @@ FastAPI：
 
 uv run fastapi dev projects/agent_backend/app/main.py --port 8001
 
+# v34
+长期项目继续在 `projects/agent_backend/` 增量开发。主题：Guardrails + Tool 安全边界 + 异常处理。说明见 `projects/agent_backend/docs/v34.md`。
+
+推荐先跑：
+
+uv run python projects/agent_backend/demos/v34/01_input_guardrail_demo.py
+
+FastAPI：
+
+uv run fastapi dev projects/agent_backend/app/main.py --port 8001
+

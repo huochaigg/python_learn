@@ -36,6 +36,7 @@ async def on_order_handoff(
 #
 # 应用层策略：每个 HTTP 请求都从 Triage Agent 起步。
 # result.last_agent 只描述本轮最终回答者；SDK Session 不会自动选用下一轮入口 Agent。
+# Input Guardrail 只在链首 Agent 运行。本对象不挂 Guardrail，以免改变 /agent/multi/chat。
 triage_agent = Agent[AgentContext](
     name="Triage Agent",
     instructions=prompt_with_handoff_instructions(
