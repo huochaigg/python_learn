@@ -82,7 +82,17 @@ Agents SDK 默认已经对 `Runner.run` / `Runner.run_streamed` 做 tracing。
 
 因此：**不是每个 Tool 都需要手写 `custom_span`。**
 
-本项目若配置了兼容网关 `OPENAI_BASE_URL`，会 `set_tracing_disabled(True)`，因为没有 OpenAI Tracing Dashboard。本地 `trace()` 仍可进入 context；`get_current_trace()` 可能返回 `trace_id=no-op`，只是默认不上报到 platform.openai.com。
+本项目模型走兼容网关（`OPENAI_BASE_URL` + `OPENAI_API_KEY`）时，**不能**用那把 Key 上报 OpenAI Tracing Dashboard。Dashboard 需要单独的 OpenAI 平台 Key：
+
+```
+OPENAI_TRACING_API_KEY=sk-proj-...
+```
+
+代码里调用官方 `set_tracing_export_api_key()`。SDK **没有** `OPENAI_AGENTS_KEY` 这个官方变量名。查看地址：https://platform.openai.com/traces
+
+上报接口是 `https://api.openai.com/v1/traces/ingest`，和 DeepSeek 的 `OPENAI_BASE_URL` 无关。本机若访问不了 `api.openai.com`（超时/被墙），Dashboard 上不会出现记录。需要能访问 OpenAI 的网络，或设置系统代理 `HTTPS_PROXY`。
+
+pytest 会关闭上报，避免单测污染 Dashboard。Demo 结束时调用 `flush_traces()`，否则进程退出太快可能还没发出去。
 
 ## custom_span
 

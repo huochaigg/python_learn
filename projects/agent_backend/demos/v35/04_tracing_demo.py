@@ -3,7 +3,7 @@
 实际意义：真实 Agent Run 可能经历 模型生成 → Tool 调用 → Tool 返回 → Handoff → Guardrail → 再次生成。
 只靠 print 很难串起完整链路。Tracing 把一次工作流记下来，步骤之间有父子关系和耗时。
 运行命令：uv run python projects/agent_backend/demos/v35/04_tracing_demo.py
-观察重点：两次 Run 的 group_id 都是 conversation_001。若配置了 OPENAI_BASE_URL，trace_id 可能显示 no-op（不上报 Dashboard），但 group_id / metadata 概念仍然成立。
+观察重点：两次 Run 的 group_id 都是 conversation_001。配置 OPENAI_TRACING_API_KEY 后，trace_id 不再是 no-op，可到 https://platform.openai.com/traces 查看。
 """
 
 from __future__ import annotations
@@ -12,11 +12,11 @@ import asyncio
 
 import _path  # noqa: F401
 
-from agents import Runner, gen_trace_id, get_current_trace, trace
+from agents import Runner, flush_traces, gen_trace_id, get_current_trace, trace
 
 from app.agents.context import AgentContext
 from app.agents.product_agent import product_agent
-from app.core.config import require_openai_key
+from app.core.config import require_openai_key, settings
 from app.core.database import (
     AsyncSessionLocal,
     engine,
@@ -25,7 +25,7 @@ from app.core.database import (
     seed_orders,
     seed_products,
 )
-from app.core.tracing import agent_trace_metadata
+from app.core.tracing import agent_trace_metadata, traces_dashboard_hint
 
 # conversation_id：业务会话 ID。本 Demo 用它当 group_id。
 # session_id：SDK 历史上下文标识（本 Demo 不传 Session，避免和 Trace 概念混在一起）。
@@ -67,6 +67,8 @@ async def run_once(label: str, message: str) -> str | None:
 
 async def main() -> None:
     require_openai_key()
+    if not settings.openai_tracing_api_key:
+        print("缺少 OPENAI_TRACING_API_KEY，Trace 不会出现在 platform.openai.com")
     await init_schema()
     await migrate_schema()
     await seed_products()
@@ -76,7 +78,8 @@ async def main() -> None:
     print("same_group_id=conversation_001")
     print(f"first_trace_id={first_id}")
     print(f"second_trace_id={second_id}")
-    print("note=OPENAI_BASE_URL 时 set_tracing_disabled(True)，trace_id 可能是 no-op；group_id 仍然是 conversation_id")
+    print(f"dashboard={traces_dashboard_hint(first_id)}")
+    flush_traces()
     await engine.dispose()
 
 

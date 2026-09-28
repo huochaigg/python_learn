@@ -27,7 +27,7 @@ Tracing 可能包含 Prompt、Tool 输入输出、模型输出。不要把密码
 
 Agents SDK 默认已经对 `Runner.run` / `Runner.run_streamed` 做 tracing。不是每个 Tool 都要手写 `custom_span`。
 
-本项目若使用兼容网关（`OPENAI_BASE_URL`），会关闭上报到 OpenAI Tracing Dashboard；本地仍用 `trace()` 给每次 Run 分配 `trace_id`，并用 `conversation_id` 作为 `group_id`。
+本项目模型走兼容网关（`OPENAI_BASE_URL`）时，用 `OPENAI_TRACING_API_KEY`（OpenAI 平台 Key）通过 `set_tracing_export_api_key()` 上报到 [Tracing Dashboard](https://platform.openai.com/traces)。不要把 DeepSeek 的 `OPENAI_API_KEY` 拿去 ingest traces。SDK 没有 `OPENAI_AGENTS_KEY` 这个官方变量。
 
 ## V35 Demo
 

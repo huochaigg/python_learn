@@ -1,7 +1,15 @@
 from pathlib import Path
+import os
 
-from agents import set_default_openai_api, set_default_openai_client, set_default_openai_key, set_tracing_disabled
+from agents import (
+    set_default_openai_api,
+    set_default_openai_client,
+    set_default_openai_key,
+    set_tracing_disabled,
+    set_tracing_export_api_key,
+)
 from openai import AsyncOpenAI
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -18,6 +26,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = ""
+    # Tracing Dashboard 必须用 OpenAI 平台 Key。SDK 没有 OPENAI_AGENTS_KEY 这个官方变量。
+    # 模型走 DeepSeek 时，OPENAI_API_KEY 不能用来上报 traces.ingest。
+    openai_tracing_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("OPENAI_TRACING_API_KEY", "OPENAI_AGENTS_KEY"),
+    )
     database_host: str = "127.0.0.1"
     database_port: int = 3306
     database_user: str = "root"
@@ -46,17 +60,59 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-if settings.openai_api_key:
-    if settings.openai_base_url:
-        set_default_openai_client(
-            AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
-        )
-        set_default_openai_api("chat_completions")
+
+def _under_pytest() -> bool:
+    return "PYTEST_VERSION" in os.environ
+
+
+def configure_model_and_tracing() -> None:
+    # 模型客户端和 Tracing 导出是两套凭证：
+    # OPENAI_API_KEY (+ BASE_URL) → 调 DeepSeek / 兼容网关
+    # OPENAI_TRACING_API_KEY → set_tracing_export_api_key() → platform.openai.com/traces
+    # pytest 里关闭上报，避免单测把脚本对话打到 Dashboard。
+    if settings.openai_api_key:
+        if settings.openai_base_url:
+            set_default_openai_client(
+                AsyncOpenAI(
+                    api_key=settings.openai_api_key,
+                    base_url=settings.openai_base_url,
+                )
+            )
+            set_default_openai_api("chat_completions")
+        else:
+            set_default_openai_key(settings.openai_api_key)
+
+    if _under_pytest():
         set_tracing_disabled(True)
-        # 兼容网关没有 OpenAI Tracing Dashboard。V35 仍用 trace() 包业务工作流；
-        # 本地能拿到 trace_id，只是默认不上报到 platform.openai.com。
-    else:
-        set_default_openai_key(settings.openai_api_key)
+        return
+    if settings.openai_tracing_api_key:
+        set_tracing_export_api_key(settings.openai_tracing_api_key)
+        set_tracing_disabled(False)
+        _tune_tracing_http_client()
+        return
+    set_tracing_disabled(True)
+
+
+def _tune_tracing_http_client() -> None:
+    # SDK 默认 connect timeout=5s。上报地址是 api.openai.com，不是 DeepSeek。
+    # trust_env=True 会走系统 HTTP(S)_PROXY；国内直连超时是网络问题，不是变量名问题。
+    import httpx2
+    from agents.tracing.processors import default_exporter
+
+    exporter = default_exporter()
+    old = getattr(exporter, "_client", None)
+    if old is not None:
+        try:
+            old.close()
+        except Exception:
+            pass
+    exporter._client = httpx2.Client(
+        timeout=httpx2.Timeout(timeout=60.0, connect=20.0),
+        trust_env=True,
+    )
+
+
+configure_model_and_tracing()
 
 
 def require_openai_key() -> None:

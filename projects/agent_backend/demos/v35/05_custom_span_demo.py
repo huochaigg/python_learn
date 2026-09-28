@@ -12,11 +12,11 @@ import asyncio
 
 import _path  # noqa: F401
 
-from agents import Runner, custom_span, gen_trace_id, get_current_trace, trace
+from agents import Runner, custom_span, flush_traces, gen_trace_id, get_current_trace, trace
 
 from app.agents.context import AgentContext
 from app.agents.product_agent import product_agent
-from app.core.config import require_openai_key
+from app.core.config import require_openai_key, settings
 from app.core.database import (
     AsyncSessionLocal,
     engine,
@@ -26,6 +26,7 @@ from app.core.database import (
     seed_products,
 )
 from app.repositories.product_repository import product_repository
+from app.core.tracing import traces_dashboard_hint
 
 
 async def inventory_business_check(sku: str) -> dict[str, object]:
@@ -49,6 +50,8 @@ async def inventory_business_check(sku: str) -> dict[str, object]:
 
 async def main() -> None:
     require_openai_key()
+    if not settings.openai_tracing_api_key:
+        print("缺少 OPENAI_TRACING_API_KEY，Trace 不会出现在 platform.openai.com")
     await init_schema()
     await migrate_schema()
     await seed_products()
@@ -61,7 +64,8 @@ async def main() -> None:
         metadata={"agent_name": product_agent.name, "environment": "demo"},
     ):
         current = get_current_trace()
-        print(f"trace_id={None if current is None else current.trace_id}")
+        trace_id = None if current is None else current.trace_id
+        print(f"trace_id={trace_id}")
         print(f"group_id=conversation_custom_001")
         check = await inventory_business_check(sku)
         print(f"custom_span=inventory_business_check")
@@ -76,8 +80,10 @@ async def main() -> None:
             )
         print(f"auto_traced_tool_calls={context.tool_calls}")
         print(f"answer={result.final_output}")
+        print(f"dashboard={traces_dashboard_hint(trace_id)}")
     print("sdk_auto_spans=Agent,Generation,FunctionTool")
     print("custom_span_only_for_extra_business_steps=True")
+    flush_traces()
     await engine.dispose()
 
 

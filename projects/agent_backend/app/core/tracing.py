@@ -1,5 +1,7 @@
 from agents import gen_trace_id, get_current_trace, trace
 
+TRACES_DASHBOARD = "https://platform.openai.com/traces"
+
 
 def agent_trace_metadata(
     *,
@@ -43,3 +45,11 @@ def start_agent_trace(
 def current_trace_id() -> str | None:
     current = get_current_trace()
     return None if current is None else current.trace_id
+
+
+def traces_dashboard_hint(trace_id: str | None) -> str:
+    if not trace_id or trace_id == "no-op":
+        return (
+            f"{TRACES_DASHBOARD} （当前 trace_id=no-op，检查 OPENAI_TRACING_API_KEY 是否已配置）"
+        )
+    return f"{TRACES_DASHBOARD}  搜索 trace_id={trace_id}"

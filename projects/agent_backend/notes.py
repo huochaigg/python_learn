@@ -74,6 +74,11 @@ NOTES = """
   trace() 用 context manager：异常也会 finish。
   Runner 默认自动打 Agent / Generation / Function / Guardrail / Handoff Span。
 
+[V35] Tracing Dashboard
+  模型 Key（DeepSeek）和 Tracing Key（OpenAI 平台）分开。
+  OPENAI_TRACING_API_KEY → set_tracing_export_api_key()。
+  没有官方变量 OPENAI_AGENTS_KEY。查看 https://platform.openai.com/traces
+
 [V35] group_id
   conversation_id 适合当 group_id，把同一会话的多次 Run 归组。
   不要和 session_id、trace_id 混用。

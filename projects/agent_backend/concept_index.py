@@ -72,6 +72,9 @@ CONCEPT_INDEX = {
     "Tracing": [
         "[V35] demos/v35/04_tracing_demo.py",
     ],
+    "set_tracing_export_api_key": [
+        "[V35] app/core/config.py -> configure_model_and_tracing()",
+    ],
     "trace()": [
         "[V35] demos/v35/04_tracing_demo.py -> main()",
     ],
