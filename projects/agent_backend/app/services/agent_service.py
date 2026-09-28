@@ -21,6 +21,7 @@ from ..core.agent_exceptions import (
     is_guardrail_block,
     map_sdk_exception,
 )
+from ..core.tracing import start_agent_trace
 from ..repositories.product_repository import product_repository
 from ..schemas.handoff import MultiAgentChatResponse
 from ..schemas.product import ProductAnalyzeResponse, ProductStockData, ProductStockResult
@@ -50,22 +51,41 @@ class AgentService:
         conversation_id: str,
         user_id: int,
     ) -> str:
+        # 同步聊天：1) 校验 Conversation 归属 2) 写入用户消息
+        # 3) 创建 AgentContext + SDK Session 4) conversation_id 作为 group_id 打开 Trace
+        # 5) Runner.run（SDK 自动产生 Agent/Generation/Tool Span）6) 保存 assistant
+        # 7) context manager 退出时结束 Trace；异常路径仍带 trace_id 打日志
         await conversation_service.require_owned(conversation_id, user_id)
         if not await conversation_run_guard.try_acquire(conversation_id):
             raise ConversationBusy
         await conversation_service.add_message(conversation_id, "user", message, "completed")
         assistant: Any = None
+        workflow_trace_id: str | None = None
         try:
             # session=sdk_session：Runner 自己 get_items() 再 add_items()。
             # 不要再手动查出历史拼进 input，否则会把同一段上下文传两遍。
             sdk_session = get_agent_session(conversation_id)
             context = AgentContext(db=session, user_id=user_id)
-            result = await Runner.run(
-                product_agent,
-                message,
-                context=context,
-                session=sdk_session,
-            )
+            with start_agent_trace(
+                "supply-chain-agent-chat",
+                conversation_id=conversation_id,
+                user_id=user_id,
+                agent_name=product_agent.name,
+            ) as workflow:
+                workflow_trace_id = workflow.trace_id
+                logger.info(
+                    "agent chat start",
+                    extra={
+                        "trace_id": workflow_trace_id,
+                        "conversation_id": conversation_id,
+                    },
+                )
+                result = await Runner.run(
+                    product_agent,
+                    message,
+                    context=context,
+                    session=sdk_session,
+                )
             answer = str(result.final_output or "")
             try:
                 assistant = await conversation_service.add_message(
@@ -81,7 +101,11 @@ class AgentService:
         except BusinessMessageSaveError:
             raise
         except Exception:
-            logger.exception("Runner.run failed conversation_id=%s", conversation_id)
+            logger.exception(
+                "Runner.run failed conversation_id=%s trace_id=%s",
+                conversation_id,
+                workflow_trace_id,
+            )
             if assistant is None:
                 try:
                     await conversation_service.add_message(
@@ -102,6 +126,10 @@ class AgentService:
         user_id: int,
         request: Request | None = None,
     ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        # 流式聊天：1) 校验 Conversation 归属 2) 写入用户消息 3) 创建 AgentContext
+        # 4) 用 conversation_id 作为 group_id 打开 Trace 5) Runner.run_streamed
+        # 6) 消费 SDK 事件并转成应用层 SSE 7) 保存业务 assistant 消息 8) Trace 结束
+        # 失败时仍保留已发生步骤的 Trace；不要把密钥写进 metadata。
         await conversation_service.require_owned(conversation_id, user_id)
         if not await conversation_run_guard.try_acquire(conversation_id):
             raise ConversationBusy
@@ -114,115 +142,135 @@ class AgentService:
         completed = False
         sdk_session = get_agent_session(conversation_id)
         context = AgentContext(db=session, user_id=user_id)
-        result = Runner.run_streamed(
-            product_agent,
-            message,
-            context=context,
-            session=sdk_session,
-        )
-        last_tool_name = "tool"
-
-        async def drain_cancelled_run() -> None:
-            result.cancel()
-            async for _ in result.stream_events():
-                pass
-
-        async def mark_assistant(status: str, content: str) -> None:
-            try:
-                await conversation_service.finish_message(pending.id, content, status)
-            except Exception:
-                logger.exception(
-                    "assistant message status update failed conversation_id=%s status=%s",
-                    conversation_id,
-                    status,
-                )
-
-        async def persist_failed() -> None:
-            # HTTP 取消会取消当前 Task；必须把 failed 写完再把 CancelledError 抛回去。
-            task = asyncio.ensure_future(mark_assistant("failed", "".join(answer_parts)))
-            cancelled: asyncio.CancelledError | None = None
-            while not task.done():
-                try:
-                    await asyncio.wait({task})
-                except asyncio.CancelledError as extra:
-                    if cancelled is None:
-                        cancelled = extra
-            if cancelled is not None:
-                raise cancelled
-
+        workflow_trace_id: str | None = None
         try:
-            async for event in result.stream_events():
-                if request is not None and await request.is_disconnected():
-                    await drain_cancelled_run()
-                    await mark_assistant("failed", "".join(answer_parts))
-                    return
-                if event.type == "raw_response_event":
-                    delta = extract_text_delta(event)
-                    if delta:
-                        answer_parts.append(delta)
-                        yield ("delta", {"content": delta})
-                    continue
-                if event.type == "run_item_stream_event":
-                    item = event.item
-                    item_type = getattr(item, "type", "")
-                    if item_type == "tool_call_item":
-                        last_tool_name = getattr(item, "tool_name", None) or "tool"
-                        yield ("tool_call", {"name": last_tool_name})
-                    elif item_type == "tool_call_output_item":
-                        yield (
-                            "tool_result",
-                            {
-                                "name": last_tool_name,
-                                "result": public_tool_result(getattr(item, "output", "")),
-                            },
-                        )
-                    continue
-            if request is not None and await request.is_disconnected():
-                await mark_assistant("failed", "".join(answer_parts))
-                return
-            if not result.is_complete:
-                await mark_assistant("failed", "".join(answer_parts))
-                yield (
-                    "error",
-                    {"code": "AGENT_STREAM_INCOMPLETE", "message": "stream not complete"},
-                )
-                return
-            final_answer = str(result.final_output or "".join(answer_parts))
-            try:
-                await conversation_service.finish_message(pending.id, final_answer, "completed")
-                completed = True
-            except Exception:
-                logger.exception(
-                    "business assistant message save failed conversation_id=%s",
-                    conversation_id,
-                )
-                await mark_assistant("failed", final_answer)
-                yield (
-                    "error",
-                    {
-                        "code": "BUSINESS_MESSAGE_SAVE_ERROR",
-                        "message": "answer generated but business message save failed",
+            with start_agent_trace(
+                "supply-chain-agent-stream",
+                conversation_id=conversation_id,
+                user_id=user_id,
+                agent_name=product_agent.name,
+            ) as workflow:
+                workflow_trace_id = workflow.trace_id
+                logger.info(
+                    "agent stream start",
+                    extra={
+                        "trace_id": workflow_trace_id,
+                        "conversation_id": conversation_id,
                     },
                 )
-                return
-            yield ("done", {"conversation_id": conversation_id, "answer": final_answer})
-        except asyncio.CancelledError:
-            if not completed:
-                await persist_failed()
-            await drain_cancelled_run()
-            raise
-        except GeneratorExit:
-            if not completed:
-                await persist_failed()
-            await drain_cancelled_run()
-            raise
-        except Exception:
-            logger.exception("Runner.run_streamed failed conversation_id=%s", conversation_id)
-            await mark_assistant("failed", "".join(answer_parts))
-            yield (
-                "error",
-                {"code": "AGENT_STREAM_ERROR", "message": "agent stream failed"},
-            )
+                result = Runner.run_streamed(
+                    product_agent,
+                    message,
+                    context=context,
+                    session=sdk_session,
+                )
+                last_tool_name = "tool"
+
+                async def drain_cancelled_run() -> None:
+                    result.cancel()
+                    async for _ in result.stream_events():
+                        pass
+
+                async def mark_assistant(status: str, content: str) -> None:
+                    try:
+                        await conversation_service.finish_message(pending.id, content, status)
+                    except Exception:
+                        logger.exception(
+                            "assistant message status update failed conversation_id=%s status=%s",
+                            conversation_id,
+                            status,
+                        )
+
+                async def persist_failed() -> None:
+                    # HTTP 取消会取消当前 Task；必须把 failed 写完再把 CancelledError 抛回去。
+                    task = asyncio.ensure_future(mark_assistant("failed", "".join(answer_parts)))
+                    cancelled: asyncio.CancelledError | None = None
+                    while not task.done():
+                        try:
+                            await asyncio.wait({task})
+                        except asyncio.CancelledError as extra:
+                            if cancelled is None:
+                                cancelled = extra
+                    if cancelled is not None:
+                        raise cancelled
+
+                try:
+                    async for event in result.stream_events():
+                        if request is not None and await request.is_disconnected():
+                            await drain_cancelled_run()
+                            await mark_assistant("failed", "".join(answer_parts))
+                            return
+                        if event.type == "raw_response_event":
+                            delta = extract_text_delta(event)
+                            if delta:
+                                answer_parts.append(delta)
+                                yield ("delta", {"content": delta})
+                            continue
+                        if event.type == "run_item_stream_event":
+                            item = event.item
+                            item_type = getattr(item, "type", "")
+                            if item_type == "tool_call_item":
+                                last_tool_name = getattr(item, "tool_name", None) or "tool"
+                                yield ("tool_call", {"name": last_tool_name})
+                            elif item_type == "tool_call_output_item":
+                                yield (
+                                    "tool_result",
+                                    {
+                                        "name": last_tool_name,
+                                        "result": public_tool_result(getattr(item, "output", "")),
+                                    },
+                                )
+                            continue
+                    if request is not None and await request.is_disconnected():
+                        await mark_assistant("failed", "".join(answer_parts))
+                        return
+                    if not result.is_complete:
+                        await mark_assistant("failed", "".join(answer_parts))
+                        yield (
+                            "error",
+                            {"code": "AGENT_STREAM_INCOMPLETE", "message": "stream not complete"},
+                        )
+                        return
+                    final_answer = str(result.final_output or "".join(answer_parts))
+                    try:
+                        await conversation_service.finish_message(pending.id, final_answer, "completed")
+                        completed = True
+                    except Exception:
+                        logger.exception(
+                            "business assistant message save failed conversation_id=%s",
+                            conversation_id,
+                        )
+                        await mark_assistant("failed", final_answer)
+                        yield (
+                            "error",
+                            {
+                                "code": "BUSINESS_MESSAGE_SAVE_ERROR",
+                                "message": "answer generated but business message save failed",
+                            },
+                        )
+                        return
+                    yield ("done", {"conversation_id": conversation_id, "answer": final_answer})
+                except asyncio.CancelledError:
+                    if not completed:
+                        await persist_failed()
+                    await drain_cancelled_run()
+                    raise
+                except GeneratorExit:
+                    if not completed:
+                        await persist_failed()
+                    await drain_cancelled_run()
+                    raise
+                except Exception:
+                    logger.exception(
+                        "Runner.run_streamed failed conversation_id=%s trace_id=%s",
+                        conversation_id,
+                        workflow_trace_id,
+                    )
+                    await mark_assistant("failed", "".join(answer_parts))
+                    yield (
+                        "error",
+                        {"code": "AGENT_STREAM_ERROR", "message": "agent stream failed"},
+                    )
         finally:
             await conversation_run_guard.release(conversation_id)
 

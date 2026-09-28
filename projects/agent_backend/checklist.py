@@ -33,6 +33,18 @@ CHECKLIST = [
     "[V34] 知道 SSE 开始后不能改 HTTP 状态码",
     "[V34] 知道 max_turns 不是聊天历史条数",
     "[V34] Guardrail 拒绝时 Message 不能标 completed",
+    "[V35] 能解释 Trace 和 Span 的区别",
+    "[V35] 能解释 Tracing 和 Logging 的区别",
+    "[V35] 知道 conversation_id 适合当 group_id",
+    "[V35] 能区分 conversation_id / session_id / trace_id / group_id",
+    "[V35] 知道 SDK 默认会追踪哪些 Agent 行为",
+    "[V35] 知道什么时候才需要 custom_span",
+    "[V35] 知道为什么 Agent Test 不能全部真实调用模型",
+    "[V35] 能说明 ScriptedModel 适合测什么、不适合测什么",
+    "[V35] 能测试 Tool 是否真的被调用，而不只看最终字符串",
+    "[V35] 能用 last_agent / handoff item 测试 Handoff",
+    "[V35] 能验证 Guardrail tripwire 后 Tool 没有执行",
+    "[V35] 能区分 Unit / Integration / E2E",
 ]
 
 

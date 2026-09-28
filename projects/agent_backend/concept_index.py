@@ -69,6 +69,30 @@ CONCEPT_INDEX = {
     "Exception Mapping": [
         "[V34] app/core/agent_exceptions.py -> map_sdk_exception()",
     ],
+    "Tracing": [
+        "[V35] demos/v35/04_tracing_demo.py",
+    ],
+    "trace()": [
+        "[V35] demos/v35/04_tracing_demo.py -> main()",
+    ],
+    "custom_span": [
+        "[V35] demos/v35/05_custom_span_demo.py -> main()",
+    ],
+    "ScriptedModel": [
+        "[V35] tests/test_agent_basic.py",
+    ],
+    "Tool Test": [
+        "[V35] tests/test_tool_call.py",
+    ],
+    "Handoff Test": [
+        "[V35] tests/test_handoff.py",
+    ],
+    "Guardrail Test": [
+        "[V35] tests/test_guardrail.py",
+    ],
+    "Session Test": [
+        "[V35] tests/test_session.py",
+    ],
 }
 
 

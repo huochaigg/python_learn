@@ -53,6 +53,8 @@ if settings.openai_api_key:
         )
         set_default_openai_api("chat_completions")
         set_tracing_disabled(True)
+        # 兼容网关没有 OpenAI Tracing Dashboard。V35 仍用 trace() 包业务工作流；
+        # 本地能拿到 trace_id，只是默认不上报到 platform.openai.com。
     else:
         set_default_openai_key(settings.openai_api_key)
 

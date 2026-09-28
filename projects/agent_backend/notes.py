@@ -1,7 +1,7 @@
 """
 文件作用：长期知识索引。按版本追加，不覆盖旧条目。
 运行命令：uv run python projects/agent_backend/notes.py
-观察重点：V34 能分清 Guardrail、Pydantic 和 Repository 权限。
+观察重点：V35 能分清 Trace / Span、trace_id / group_id，以及 ScriptedModel 测编排而不是测智商。
 """
 
 NOTES = """
@@ -68,6 +68,31 @@ NOTES = """
 [V34] 异常映射
   SDK Exception → AgentRunError → HTTP/SSE。应用层 code 不是 SDK 字段。
   max_turns 是 Agent Loop 轮次，不是历史条数。
+
+[V35] Tracing
+  Trace ≈ 一次完整业务工作流。Span ≈ 其中一步。
+  trace() 用 context manager：异常也会 finish。
+  Runner 默认自动打 Agent / Generation / Function / Guardrail / Handoff Span。
+
+[V35] group_id
+  conversation_id 适合当 group_id，把同一会话的多次 Run 归组。
+  不要和 session_id、trace_id 混用。
+
+[V35] metadata
+  只放 user_id / conversation_id / agent_name / environment。
+  不要放 Key、密码、Token、完整敏感业务数据。
+
+[V35] custom_span
+  只给 SDK 不会自动追踪的业务步骤。不要给每个 Tool 再包一层。
+
+[V35] ScriptedModel
+  官方确定性模型。测编排、Tool、Handoff、Guardrail、Session。
+  不测 Prompt 质量和真实理解能力。不要自己写 FakeModel。
+
+[V35] 测试分层
+  Unit：确定性 ScriptedModel。
+  Integration：少量真实模型 + MySQL。
+  E2E：FastAPI 整条链路。不要所有测试都打真实 API。
 """
 
 

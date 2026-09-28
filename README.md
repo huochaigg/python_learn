@@ -1900,3 +1900,18 @@ FastAPI：
 
 uv run fastapi dev projects/agent_backend/app/main.py --port 8001
 
+# v35
+长期项目继续在 `projects/agent_backend/` 增量开发。主题：Tracing + Agent Testing + Observability。说明见 `projects/agent_backend/docs/v35_tracing_testing.md`。
+
+推荐先跑：
+
+uv run python projects/agent_backend/demos/v35/04_tracing_demo.py
+
+确定性测试：
+
+uv run pytest projects/agent_backend/tests/test_agent_basic.py
+
+FastAPI：
+
+uv run fastapi dev projects/agent_backend/app/main.py --port 8001
+
